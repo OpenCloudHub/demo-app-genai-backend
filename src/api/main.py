@@ -9,9 +9,8 @@ import mlflow
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from _config import CONFIG
-from _logging import get_logger
-from rag.chain import RAGChain
+from src._config import CONFIG
+from src._logging import get_logger
 from src.api.schemas import (
     APIStatus,
     ErrorResponse,
@@ -23,6 +22,7 @@ from src.api.schemas import (
     ReloadPromptResponse,
     RootResponse,
 )
+from src.rag.chain import RAGChain
 
 logger = get_logger(__name__)
 
