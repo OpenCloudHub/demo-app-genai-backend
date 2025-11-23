@@ -12,10 +12,10 @@
   </picture>
   </a>
 
-<h1 align="center">README RAG Agent</h1>
+<h1 align="center">Demo App GenAI Backend</h1>
 
 <p align="center">
-    Production RAG system with prompt versioning, automated evaluation, and GitOps deployment.<br />
+    Demo RAG system with prompt versioning, automated evaluation, and GitOps deployment.<br />
     <a href="https://github.com/opencloudhub"><strong>Explore OpenCloudHub »</strong></a>
   </p>
 </div>
