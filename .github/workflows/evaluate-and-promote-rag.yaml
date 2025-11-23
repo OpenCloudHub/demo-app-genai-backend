@@ -225,7 +225,7 @@ jobs:
     steps:
       - name: Trigger API reload
         env:
-          API_URL: ""https://api.opencloudhub.org/demo-app""
+          API_URL: "https://api.opencloudhub.org/demo-app"
           BEST_PROMPT_VERSION: ${{ needs.evaluate.outputs.best_prompt_version }}
         run: |
           echo "🔄 Reloading API with new prompt..."
