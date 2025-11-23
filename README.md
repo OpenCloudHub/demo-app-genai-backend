@@ -43,6 +43,7 @@ ______________________________________________________________________
 
 <h2 id="about">🤖 About</h2>
 <!-- TODO: make right -->
+<!-- TODO: Add Chathistory -->
 
 A demo Retrieval-Augmented Generation (RAG) system that answers questions about OpenCloudHub's MLOps platform by retrieving relevant information from README files across multiple repositories. The system demonstrates MLOps practices in the context of GenAI including prompt versioning, automated evaluation, and continuous deployment.
 
@@ -61,7 +62,7 @@ ______________________________________________________________________
 - **Hybrid Search**: Combines semantic (pgvector) and keyword (PostgreSQL FTS) search with reciprocal rank fusion
 - **Streaming Responses**: Server-Sent Events (SSE) for real-time token streaming
 - **Session Management**: Track conversation history across multiple queries
-- **Production-Ready**: FastAPI with health checks, metrics, and graceful shutdown
+- **Production-Ready-Serving**: FastAPI with health checks, metrics, and graceful shutdown
 
 ### MLOps Pipeline
 - **Prompt Versioning**: MLflow Prompt Engineering with semantic versioning
@@ -81,6 +82,7 @@ ______________________________________________________________________
 <h2 id="architecture">🏗️ Architecture</h2>
 
 ### System Components
+<!-- TODO: adjust -->
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -123,7 +125,7 @@ ______________________________________________________________________
 
 ### Data Flow
 
-1. **Ingestion**: Repository READMEs → Chunking → Embeddings → PostgreSQL/pgvector
+1. **Ingestion**: Repository READMEs → Chunking → Ray batch embeddings → PostgreSQL/pgvector
 2. **Query**: User question → Hybrid retrieval → Context + Prompt → LLM → Streamed answer
 3. **Evaluation**: Test prompts → Compute metrics → Promote best → Update deployment
 4. **Deployment**: GitHub Actions → Docker build → ArgoCD watches → Automatic rollout
@@ -138,16 +140,16 @@ ______________________________________________________________________
 - VS Code with DevContainers extension (recommended)
 - Access to:
   - PostgreSQL database with pgvector
-  - Ollama or OpenAI-compatible LLM endpoint
+  - OpenAI-compatible LLM endpoint
   - MLflow tracking server
-  - MinIO or S3 for DVC storage
+  - MinIO or S3 for DVC storage with example data pushed and versioned in your [Data Registry](https://github.com/OpenCloudHub/data-registry/tree/main/data/opencloudhub-readmes/rag-evaluation).
 
 ### Quick Start
 
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/opencloudhub/readme-rag-agent.git
+   git clone https://github.com/OpenCloudHub/demo-app-genai-backend.git
    cd readme-rag-agent
    ```
 
@@ -159,7 +161,7 @@ ______________________________________________________________________
 
    ```bash
    cp .env.example .env
-   # Edit .env with your credentials
+   # Edit .env with your credentials and conection string
    ```
 
    Required variables:
@@ -185,6 +187,13 @@ ______________________________________________________________________
    curl -X POST http://localhost:8000/query \
      -H "Content-Type: application/json" \
      -d '{"question": "What is GitOps in OpenCloudHub?"}'
+   ```
+   or with streaming with Server-Sent Events (SSE):
+   ```bash
+    curl -N -X POST http://localhost:8000/query \
+      -H "Content-Type: application/json" \
+      -H "Accept: text/event-stream" \
+      -d '{"question": "What is GitOps in OpenCloudHub?", "stream": true}'
    ```
 
 ______________________________________________________________________
@@ -367,30 +376,15 @@ readme-rag-agent/
 │   └── _logging.py                        # Logging setup
 │
 ├── scripts/
-│   ├── register_prompts.py                # Register prompt versions
-│   └── test_retrieval.py                  # Test vector search
+│   └── register_prompts.py                # Register prompt versions
 │
 ├── tests/
-│   ├── test_api.py                        # API endpoint tests
-│   ├── test_chain.py                      # RAG chain tests
+│   ├── test_retrieval.py                  # Test vector search
 │   └── test_streaming.py                  # Streaming response tests
-│
-├── data/
-│   └── evaluation/                        # DVC-tracked eval datasets
-│       ├── questions.csv
-│       └── questions.csv.dvc
 │
 ├── .devcontainer/
 │   ├── devcontainer.json                  # VS Code DevContainer
 │   └── Dockerfile                         # Development environment
-│
-├── deployment/
-│   ├── k8s/
-│   │   ├── deployment.yaml                # Kubernetes deployment
-│   │   ├── service.yaml                   # Service definition
-│   │   └── configmap.yaml                 # Environment config
-│   └── argocd/
-│       └── application.yaml               # ArgoCD application
 │
 ├── .dvc/
 │   ├── config                             # DVC remote config
@@ -422,12 +416,13 @@ python tests/test_streaming.py
 ```bash
 python src/evaluation/evaluate_promts.py \
     --prompt-versions 1 2 \
-    --no-auto-promote  # Just compare, don't promote
+    --auto-promote False  # Just compare, don't promote
 ```
 
 ### Adding Evaluation Data
 
 1. **Prepare questions CSV:**
+  Adjust the evaluation data found and tracked in the [Data Registry](https://github.com/OpenCloudHub/data-registry/tree/main/data/opencloudhub-readmes/rag-evaluation)
    ```csv
    question,expected_answer,key_concepts,category
    "What is GitOps?","ArgoCD manages deployments...","[""GitOps"",""ArgoCD""]",deployment
@@ -435,9 +430,9 @@ python src/evaluation/evaluate_promts.py \
 
 2. **Track with DVC:**
    ```bash
-   dvc add data/evaluation/questions.csv
+   dvc add data/opencloudhub-readmes/rag-evaluation/questions.csv
    dvc push
-   git add data/evaluation/questions.csv.dvc
+   git add data/opencloudhub-readmes/rag-evaluation/questions.csv.dvc
    git commit -m "Add evaluation dataset v1.1.0"
    git tag opencloudhub-readmes-rag-evaluation-v1.1.0
    git push origin main --tags
@@ -483,66 +478,13 @@ ______________________________________________________________________
 
 ### Docker Build
 
-```bash
-# Build production image
-docker build -t readme-rag-agent:latest .
-
-# Run locally
-docker run -p 8000:8000 \
-    --env-file .env \
-    readme-rag-agent:latest
-```
+Building a new serving image happens during the automated CI/CD pipeline. Changes
+on relevant files trigger a [Github Actions Workflow](.github/workflows/ci-docker-build-push.yaml) that calls a shared workflow that build and pushes the container to Dockerhub.
 
 ### Kubernetes Deployment
 
-**Using ArgoCD:**
-
-```yaml
-# deployment/argocd/application.yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: readme-rag-agent
-  annotations:
-    argocd-image-updater.argoproj.io/image-list: |
-      registry.internal.opencloudhub.org/readme-rag-agent:latest
-    argocd-image-updater.argoproj.io/write-back-method: git
-spec:
-  source:
-    repoURL: https://github.com/opencloudhub/readme-rag-agent
-    path: deployment/k8s
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: ai
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-```
-
-**Apply:**
-```bash
-kubectl apply -f deployment/argocd/application.yaml
-```
-
 **ArgoCD Image Updater** automatically detects new images and updates the deployment.
 
-### Environment Configuration
-
-**Production secrets (sealed-secrets):**
-
-```yaml
-# deployment/k8s/sealed-secret.yaml
-apiVersion: bitnami.com/v1alpha1
-kind: SealedSecret
-metadata:
-  name: rag-agent-secrets
-spec:
-  encryptedData:
-    DB_CONNECTION_STRING: AgA...
-    AWS_SECRET_ACCESS_KEY: AgB...
-    MLFLOW_TRACKING_URI: AgC...
-```
 
 ### Health Checks
 
