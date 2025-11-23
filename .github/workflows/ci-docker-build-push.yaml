@@ -1,0 +1,24 @@
+name: CI Build & Push Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/**
+      - Dockerfile
+      - .github/ci-docker-build-push.yaml
+
+
+jobs:
+  build-image:
+    name: 🎓 Build Image
+    uses: opencloudhub/.github/.github/workflows/shared-ci-docker-build-push.yaml@main
+    with:
+      repo-name: "demo-app-genai-backend"
+      context: "."
+      dockerfile: "Dockerfile"
+      target: "training"
+      push-on-pr: true
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}

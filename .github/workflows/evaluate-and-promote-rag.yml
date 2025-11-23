@@ -1,0 +1,319 @@
+name: Evaluate and Promote RAG Prompts
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt_name: 
+        description: 'Prompt name to use'
+        required: true
+        default: 'readme-rag-prompt'
+      prompt_versions:
+        description: 'Prompt versions to evaluate (space-separated, e.g., "1 2 3")'
+        required: true
+        default: '1 2 3'
+      data_version:
+        description: 'Eval dataset version (DVC tag)'
+        required: true
+        default: 'opencloudhub-readmes-rag-evaluation-v1.0.0'
+      auto_promote:
+        description: 'Auto-promote best prompt to production'
+        type: boolean
+        default: true
+      image_tag:
+        description: 'Docker image tag (use "latest" to auto-resolve to main-SHA)'
+        required: false
+        default: 'latest'
+
+jobs:
+  # Step 1: Resolve the Docker image to use
+  resolve-image:
+    name: 🔍 Resolve Docker Image
+    runs-on: ubuntu-latest
+    outputs:
+      resolved_tag: ${{ steps.resolve.outputs.resolved_tag }}
+      git_sha: ${{ steps.resolve.outputs.git_sha }}
+      full_image: ${{ steps.resolve.outputs.full_image }}
+    
+    steps:
+      - name: Resolve Docker image tag
+        id: resolve
+        run: |
+          INPUT_TAG="${{ github.event.inputs.image_tag }}"
+          DOCKER_REPO="${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend"
+          
+          echo "🔍 Resolving image: ${DOCKER_REPO}:${INPUT_TAG}"
+          
+          # Get Docker Hub token
+          TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${DOCKER_REPO}:pull" \
+            | jq -r '.token')
+          
+          if [ "$INPUT_TAG" = "latest" ]; then
+            echo "🔍 Finding latest main-* image..."
+            
+            # Get digest of 'latest' tag
+            LATEST_DIGEST=$(curl -s \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+              "https://registry-1.docker.io/v2/${DOCKER_REPO}/manifests/latest" \
+              | jq -r '.config.digest')
+            
+            if [ "$LATEST_DIGEST" = "null" ] || [ -z "$LATEST_DIGEST" ]; then
+              echo "❌ Could not find 'latest' tag"
+              exit 1
+            fi
+            
+            echo "📦 Latest digest: ${LATEST_DIGEST}"
+            
+            # Get all main-* tags
+            ALL_TAGS=$(curl -s \
+              -H "Authorization: Bearer ${TOKEN}" \
+              "https://registry-1.docker.io/v2/${DOCKER_REPO}/tags/list" \
+              | jq -r '.tags[]' | grep "^main-" || echo "")
+            
+            if [ -z "$ALL_TAGS" ]; then
+              echo "❌ No main-* tags found"
+              exit 1
+            fi
+            
+            # Find matching tag
+            RESOLVED_TAG=""
+            for tag in $ALL_TAGS; do
+              TAG_DIGEST=$(curl -s \
+                -H "Authorization: Bearer ${TOKEN}" \
+                -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+                "https://registry-1.docker.io/v2/${DOCKER_REPO}/manifests/${tag}" \
+                | jq -r '.config.digest')
+              
+              if [ "$TAG_DIGEST" = "$LATEST_DIGEST" ]; then
+                RESOLVED_TAG="$tag"
+                echo "✅ Found matching tag: ${RESOLVED_TAG}"
+                break
+              fi
+            done
+            
+            if [ -z "$RESOLVED_TAG" ]; then
+              echo "❌ Could not find main-* tag matching latest digest"
+              exit 1
+            fi
+          else
+            RESOLVED_TAG="$INPUT_TAG"
+            echo "✅ Using explicit tag: ${RESOLVED_TAG}"
+            
+            # Validate tag exists
+            IMAGE_EXISTS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              "https://registry-1.docker.io/v2/${DOCKER_REPO}/manifests/${RESOLVED_TAG}")
+            
+            if [ "$IMAGE_EXISTS" != "200" ]; then
+              echo "❌ Image not found: ${DOCKER_REPO}:${RESOLVED_TAG}"
+              exit 1
+            fi
+          fi
+          
+          # Extract Git SHA from tag (format: main-abc123f or pr-123-abc123f)
+          GIT_SHA=$(echo "$RESOLVED_TAG" | grep -oP '(?<=-)[a-f0-9]{7}$' || echo "unknown")
+          
+          FULL_IMAGE="${DOCKER_REPO}:${RESOLVED_TAG}"
+          
+          echo "✅ Resolved image: ${FULL_IMAGE}"
+          echo "📝 Git SHA: ${GIT_SHA}"
+          
+          echo "resolved_tag=${RESOLVED_TAG}" >> $GITHUB_OUTPUT
+          echo "git_sha=${GIT_SHA}" >> $GITHUB_OUTPUT
+          echo "full_image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
+
+  # Step 2: Run evaluation in the resolved Docker container
+  evaluate:
+    name: 🧪 Evaluate Prompts
+    needs: resolve-image
+    runs-on: self-hosted-local
+    
+    container:
+      image: ${{ needs.resolve-image.outputs.full_image }}
+      credentials:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_TOKEN }}
+    
+    outputs:
+      best_prompt_version: ${{ steps.eval.outputs.best_prompt_version }}
+    
+    steps:
+      - name: Display environment info
+        run: |
+          echo "🐳 Running in container: ${{ needs.resolve-image.outputs.full_image }}"
+          echo "📝 Git SHA: ${{ needs.resolve-image.outputs.git_sha }}"
+          echo "📍 Working directory: $(pwd)"
+          echo "🐍 Python version: $(python --version)"
+          echo ""
+          echo "📦 Key packages:"
+          pip list | grep -E "(mlflow|dvc|langchain|fastapi)" || echo "  (checking...)"
+
+      - name: Run MLflow Evaluation
+        id: eval
+        env:
+          # TODO: store as secrets
+          # Database & Storage 
+          DB_CONNECTION_STRING: "postgresql+psycopg://demo-app:1234@localhost:5432/demo_app"
+          AWS_ACCESS_KEY_ID: admin
+          AWS_SECRET_ACCESS_KEY: 1234
+          AWS_ENDPOINT_URL: https://minio-api.storage.internal.opencloudhub.org
+          
+          # MLflow
+          MLFLOW_TRACKING_URI: "https://mlflow.ai.internal.opencloudhub.org"
+          MLFLOW_TRACKING_INSECURE_TLS: "true"
+          
+          # LLM
+          LLM_BASE_URL: "https://api.opencloudhub.org/models/qwen-0.5b/v1"
+          
+          # Code versioning metadata
+          DOCKER_IMAGE_TAG: ${{ needs.resolve-image.outputs.resolved_tag }}
+          GIT_SHA: ${{ needs.resolve-image.outputs.git_sha }}
+          GITHUB_WORKFLOW: ${{ github.workflow }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          echo "🚀 Starting evaluation with:"
+          echo "  Prompt: ${{ github.event.inputs.prompt_name }}"
+          echo "  Versions: ${{ github.event.inputs.prompt_versions }}"
+          echo "  Data version: ${{ github.event.inputs.data_version }}"
+          echo "  Docker image: ${DOCKER_IMAGE_TAG}"
+          echo "  Git SHA: ${GIT_SHA}"
+          echo ""
+          
+          # Run evaluation (code is already in the container at /workspace/project)
+          cd /workspace/project
+          
+          python src/evaluation/evaluate_promts.py \
+            --prompt-name "${{ github.event.inputs.prompt_name }}" \
+            --prompt-versions ${{ github.event.inputs.prompt_versions }} \
+            --data-version "${{ github.event.inputs.data_version }}" \
+            ${{ github.event.inputs.auto_promote == 'true' && '--auto-promote' }} \
+            | tee eval_output.txt
+          
+          # Extract best prompt version from output
+          BEST_VERSION=$(grep "Best prompt version:" eval_output.txt | grep -oP 'v\K\d+' | head -1)
+          
+          if [ -z "$BEST_VERSION" ]; then
+            echo "❌ Could not extract best prompt version from output"
+            echo "Output was:"
+            cat eval_output.txt
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ Evaluation complete!"
+          echo "📊 Best prompt version: ${BEST_VERSION}"
+          echo "🐳 Evaluated using: ${DOCKER_IMAGE_TAG} (${GIT_SHA})"
+          
+          echo "best_prompt_version=${BEST_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Upload evaluation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-logs-${{ github.run_number }}
+          path: /workspace/project/eval_output.txt
+          retention-days: 30
+
+  # Step 3: Trigger API reload with new prompt
+  reload-api:
+    name: 🔄 Reload Production API
+    needs: [resolve-image, evaluate]
+    if: github.event.inputs.auto_promote == 'true' && needs.evaluate.outputs.best_prompt_version != ''
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Trigger API reload
+        env:
+          API_URL: ""https://api.opencloudhub.org/demo-app""
+          BEST_PROMPT_VERSION: ${{ needs.evaluate.outputs.best_prompt_version }}
+        run: |
+          echo "🔄 Reloading API with new prompt..."
+          echo "  API: ${API_URL}"
+          echo "  Prompt version: ${BEST_PROMPT_VERSION}"
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${API_URL}/admin/reload-prompt" \
+            -H "Content-Type: application/json" \
+            -d "{\"prompt_version\":${BEST_PROMPT_VERSION}}")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          echo "Response: ${BODY}"
+          echo "Status: ${HTTP_CODE}"
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ API successfully reloaded with prompt v${BEST_PROMPT_VERSION}"
+          else
+            echo "⚠️ API reload returned status ${HTTP_CODE}"
+            echo "Response: ${BODY}"
+            exit 1
+          fi
+
+  # Summary job
+  summary:
+    name: 📋 Summary
+    needs: [resolve-image, evaluate, reload-api]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Create Job Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## 🎯 RAG Prompt Evaluation Results
+          
+          ### Configuration
+          | Parameter | Value |
+          |-----------|-------|
+          | **Prompt Name** | `${{ github.event.inputs.prompt_name }}` |
+          | **Versions Evaluated** | `${{ github.event.inputs.prompt_versions }}` |
+          | **Dataset Version** | `${{ github.event.inputs.data_version }}` |
+          | **Auto-Promote** | ${{ github.event.inputs.auto_promote }} |
+          
+          ### Docker Image
+          | Property | Value |
+          |----------|-------|
+          | **Input Tag** | `${{ github.event.inputs.image_tag }}` |
+          | **Resolved Tag** | `${{ needs.resolve-image.outputs.resolved_tag }}` |
+          | **Git SHA** | `${{ needs.resolve-image.outputs.git_sha }}` |
+          | **Full Image** | `${{ needs.resolve-image.outputs.full_image }}` |
+          
+          ### Results
+          | Metric | Value |
+          |--------|-------|
+          | **Best Prompt Version** | `v${{ needs.evaluate.outputs.best_prompt_version }}` |
+          | **Evaluation Status** | ${{ needs.evaluate.result == 'success' && '✅ Success' || '❌ Failed' }} |
+          | **API Reload Status** | ${{ needs.reload-api.result == 'success' && '✅ Success' || needs.reload-api.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} |
+          
+          ### Next Steps
+          ${{ github.event.inputs.auto_promote == 'true' && format('
+          ✅ The best prompt (v{0}) has been automatically promoted to `@production` and the API has been reloaded.
+          
+          **Your production API is now using:**
+          ```python
+          prompt_name: "readme-rag-prompt"
+          prompt_version: {0}
+          evaluated_with_image: "{1}"
+          evaluated_with_code: "{2}"
+          ```
+          ', needs.evaluate.outputs.best_prompt_version, needs.resolve-image.outputs.resolved_tag, needs.resolve-image.outputs.git_sha) || format('
+          ℹ️ Evaluation complete but auto-promotion was disabled.
+          
+          **To manually promote:**
+          ```python
+          import mlflow
+          mlflow.set_prompt_alias(
+              "readme-rag-prompt", 
+              alias="production", 
+              version={0}
+          )
+          ```
+          ', needs.evaluate.outputs.best_prompt_version) }}
+          
+          ---
+          
+          📊 [View detailed results in MLflow](${{ secrets.MLFLOW_TRACKING_URI }})  
+          📦 [Download evaluation logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF

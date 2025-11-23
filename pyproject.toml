@@ -1,0 +1,44 @@
+# pyproject.toml
+[project]
+name = "demo-app-genai-backend"
+version = "0.1.0"
+description = "RAG application showcasing LangChain MLflow and FastAPI integration"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # Core shared dependencies
+    "langchain[openai]>=0.3.0",
+    "mlflow>=3.6.0",
+    "pydantic>=2.12.0",
+    "pydantic-settings>=2.12.0",
+    "psycopg2-binary>=2.9.0",  # For pgvector
+    "pgvector>=0.3.0",
+    "httpx>=0.28.0",  # For calling Ray Serve LLM endpoints
+    "langchain-postgres>=0.0.16",
+    "sentence-transformers>=5.1.2",
+    "dvc[s3]>=3.64.0",
+    "fastapi[standard]>=0.121.3",
+    "langchain-community>=0.4.1",
+    "langchain-core>=1.0.7",
+]
+
+[project.optional-dependencies]
+# Serving-specific dependencies
+serving = [
+    "fastapi>=0.116.0",
+    "uvicorn[standard]>=0.34.0",
+]
+
+[dependency-groups]
+# Development dependencies
+dev = [
+    "pre-commit>=4.3.0",
+    "ruff>=0.12.8",
+    "pytest>=8.0.0",
+    "httpx>=0.28.0",  # For testing
+]
+
+[tool.uv]
+concurrent-builds = 4
+concurrent-downloads = 8
+concurrent-installs = 4
