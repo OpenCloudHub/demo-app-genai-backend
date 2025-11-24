@@ -156,10 +156,10 @@ jobs:
           DB_CONNECTION_STRING: "postgresql+psycopg://demo-app:1234@localhost:5432/demo_app"
           AWS_ACCESS_KEY_ID: admin
           AWS_SECRET_ACCESS_KEY: 1234
-          AWS_ENDPOINT_URL: https://minio-api.storage.internal.opencloudhub.org
+          AWS_ENDPOINT_URL: https://minio-api.internal.opencloudhub.org
           
           # MLflow
-          MLFLOW_TRACKING_URI: "https://mlflow.ai.internal.opencloudhub.org"
+          MLFLOW_TRACKING_URI: "https://mlflow.internal.opencloudhub.org"
           MLFLOW_TRACKING_INSECURE_TLS: "true"
           
           # LLM

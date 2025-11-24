@@ -104,6 +104,7 @@ app = FastAPI(
     description="RAG-based question answering system for OpenCloudHub MLOps platform documentation",
     version="1.0.0",
     lifespan=lifespan,
+    root_path="/api",
 )
 
 

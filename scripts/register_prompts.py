@@ -3,9 +3,12 @@
 import os
 
 import mlflow
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 mlflow.set_tracking_uri(
-    os.getenv("MLFLOW_TRACKING_URI", "https://mlflow.ai.internal.opencloudhub.org")
+    os.getenv("MLFLOW_TRACKING_URI", "https://mlflow.mlops.internal.opencloudhub.org")
 )
 
 # Prompt V1: Basic agent instructions
@@ -51,7 +54,7 @@ Question: {question}
 
 Answer:"""
 
-print("Registering prompts...")
+print(f"Registering prompts to MLflow at {mlflow.get_tracking_uri()}...\n")
 mlflow.genai.register_prompt("readme-rag-prompt", PROMPT_V1, commit_message="V1")
 print("✓ V1")
 mlflow.genai.register_prompt("readme-rag-prompt", PROMPT_V2, commit_message="V2")
