@@ -39,9 +39,10 @@ async def lifespan(app: FastAPI):
 
     try:
         logger.info(f"📦 Loading RAG chain with prompt v{app.state.prompt_version}")
+
+        # Try to load production prompt version if not specified
         if app.state.prompt_version is None:
             try:
-                # Get prod model version from mlflow
                 prod_prompt = mlflow.genai.load_prompt(
                     f"prompts:/{app.state.prompt_name}@production"
                 )
@@ -50,30 +51,47 @@ async def lifespan(app: FastAPI):
                     f"ℹ️ Loaded production prompt version: v{app.state.prompt_version}"
                 )
             except Exception as e:
-                logger.error(f"Failed to load production prompt version: {e}")
-                raise
-        app.state.chain = RAGChain(
-            db_connection_string=CONFIG.db.connection_string,
-            table_name=CONFIG.db.table_name,
-            embedding_model=CONFIG.models.embedding_model,
-            llm_base_url=CONFIG.models.llm_base_url,
-            llm_model=CONFIG.models.llm_model,
-            prompt_name=app.state.prompt_name,
-            prompt_version=app.state.prompt_version,
-            top_k=CONFIG.db.top_k,
-        )
-        if app.state.prompt_version is None or app.state.chain is None:
-            app.state.status = APIStatus.UNHEALTHY
-            logger.error(
-                f"Prompt version: {app.state.prompt_version}, chain: {app.state.chain}"
+                logger.warning(f"⚠️ Failed to load production prompt version: {e}")
+                logger.warning("Service will start unhealthy until prompt is available")
+                app.state.prompt_version = None
+                app.state.status = APIStatus.UNHEALTHY
+                app.state.chain = None
+                yield  # Start service in unhealthy state
+                return
+
+        # Try to initialize RAG chain
+        try:
+            app.state.chain = RAGChain(
+                db_connection_string=CONFIG.db.connection_string,
+                table_name=CONFIG.db.table_name,
+                embedding_model=CONFIG.models.embedding_model,
+                llm_base_url=CONFIG.models.llm_base_url,
+                llm_model=CONFIG.models.llm_model,
+                prompt_name=app.state.prompt_name,
+                prompt_version=app.state.prompt_version,
+                top_k=CONFIG.db.top_k,
             )
-            raise Exception("Prompt version or chain is None after loading")
-        app.state.status = APIStatus.HEALTHY
-        logger.success("✅ RAG chain loaded successfully")
+
+            # Verify chain is properly initialized
+            if app.state.chain is None:
+                raise ValueError("RAG chain initialization returned None")
+
+            app.state.status = APIStatus.HEALTHY
+            logger.success("✅ RAG chain loaded successfully")
+
+        except Exception as e:
+            logger.error(f"⚠️ Failed to initialize RAG chain: {e}", exc_info=True)
+            logger.warning(
+                "Service will start unhealthy. Use /admin/reload-prompt to retry."
+            )
+            app.state.status = APIStatus.UNHEALTHY
+            app.state.chain = None
 
     except Exception as e:
-        logger.error(f"❌ Failed to load RAG chain: {e}")
+        logger.error(f"⚠️ Unexpected error during startup: {e}", exc_info=True)
+        logger.warning("Service will start unhealthy")
         app.state.status = APIStatus.UNHEALTHY
+        app.state.chain = None
 
     yield
 

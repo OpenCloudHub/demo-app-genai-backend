@@ -13,6 +13,7 @@ class APIStatus(StrEnum):
     LOADING = auto()
     HEALTHY = auto()
     UNHEALTHY = auto()
+    NOT_READY = auto()
 
 
 class QueryRequest(BaseModel):
