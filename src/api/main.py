@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
         if app.state.prompt_version is None:
             try:
                 prod_prompt = mlflow.genai.load_prompt(
-                    f"prompts:/{app.state.prompt_name}@production"
+                    f"prompts:/{app.state.prompt_name}@champion"
                 )
                 app.state.prompt_version = prod_prompt.version
                 logger.info(

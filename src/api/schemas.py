@@ -78,8 +78,8 @@ class RootResponse(BaseModel):
 class ReloadPromptRequest(BaseModel):
     """Request model for reloading prompt."""
 
-    prompt_version: int = Field(
-        ..., description="Specific prompt version to load", ge=1
+    prompt_version: int | None = Field(
+        None, description="Specific prompt version to load, None for latest", ge=1
     )
 
 
