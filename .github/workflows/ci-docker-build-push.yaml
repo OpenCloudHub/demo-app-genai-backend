@@ -11,29 +11,84 @@ on:
       - .github/workflows/ci-docker-build-push.yaml
 
 jobs:
-  build-serving-image:
-    name: 🚀 Build Serving Image
-    uses: opencloudhub/.github/.github/workflows/shared-ci-docker-build-push.yaml@main
-    with:
-      repo-name: "demo-app-genai-backend"
-      context: "."
-      dockerfile: "Dockerfile"
-      target: "serving"
-      push-on-pr: true
-    secrets:
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
-
-  build-evaluation-image:
-    name: 🧪 Build Evaluation Image
-    uses: opencloudhub/.github/.github/workflows/shared-ci-docker-build-push.yaml@main
-    with:
-      repo-name: "demo-app-genai-backend"
-      context: "."
-      dockerfile: "Dockerfile"
-      target: "evaluation"
-      push-on-pr: true
-      image-suffix: "-eval"  # Tag as demo-app-genai-backend-eval:main-abc123
-    secrets:
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+  build-and-push:
+    name: 🐳 Build Multi-Stage Images
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        run: |
+          BRANCH=${GITHUB_REF#refs/heads/}
+          SHA=${GITHUB_SHA::7}
+          
+          if [ "$BRANCH" = "main" ]; then
+            TAG_PREFIX="main-${SHA}"
+          else
+            # For PRs, extract PR number
+            PR_NUM=$(echo "$GITHUB_REF" | sed 's|refs/pull/||' | sed 's|/merge||')
+            TAG_PREFIX="pr-${PR_NUM}-${SHA}"
+          fi
+          
+          echo "tag_prefix=${TAG_PREFIX}" >> $GITHUB_OUTPUT
+          echo "sha=${SHA}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+      
+      - name: Build and push serving image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: serving
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:${{ steps.meta.outputs.tag_prefix }}
+            ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:latest
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:buildcache,mode=max
+      
+      - name: Build and push evaluation image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: evaluation
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:${{ steps.meta.outputs.tag_prefix }}-eval
+            ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:latest-eval
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:buildcache,mode=max
+      
+      - name: Image summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## 🐳 Built Images
+          
+          ### Serving Image (API)
+          ```
+          ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:${{ steps.meta.outputs.tag_prefix }}
+          ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:latest
+          ```
+          
+          ### Evaluation Image (CI)
+          ```
+          ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:${{ steps.meta.outputs.tag_prefix }}-eval
+          ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:latest-eval
+          ```
+          
+          **Branch:** `${{ steps.meta.outputs.branch }}`  
+          **Commit:** `${{ steps.meta.outputs.sha }}`
+          EOF
