@@ -175,10 +175,7 @@ jobs:
           echo "  Current dir: $(pwd)"
           echo "  Code location: /workspace/project"
           echo ""
-          
-          # The code is in the image at /workspace/project (from Dockerfile)
-          # No need to checkout - just use what's in the image
-          cd /workspace/project
+
           
           # Activate virtual environment from the image
           export PATH="/workspace/project/.venv/bin:$PATH"
