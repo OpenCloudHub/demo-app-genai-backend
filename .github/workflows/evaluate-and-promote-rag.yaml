@@ -123,12 +123,13 @@ jobs:
           echo "full_image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
 
   # Step 2: Run evaluation in the resolved Docker container
-  evaluate:
+    evaluate:
     name: 🧪 Evaluate Prompts
     needs: resolve-image
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.resolve-image.outputs.full_image }}
+      options: --workdir /workspace/project  # Force container workdir
       credentials:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_TOKEN }}
@@ -137,34 +138,24 @@ jobs:
       best_prompt_version: ${{ steps.eval.outputs.best_prompt_version }}
     
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Display environment info
+      - name: Verify environment
         run: |
-          echo "🐳 Running in container: ${{ needs.resolve-image.outputs.full_image }}"
-          echo "📝 Git SHA: ${{ needs.resolve-image.outputs.git_sha }}"
           echo "📍 Working directory: $(pwd)"
           echo "📂 Contents:"
           ls -la
+          echo "🐍 Python location: $(which python)"
+          echo "📦 DVC available: $(python -c 'import dvc; print(dvc.__version__)' 2>/dev/null || echo 'NOT FOUND')"
 
       - name: Run MLflow Evaluation
         id: eval
         env:
-          # Database & Storage 
           DB_CONNECTION_STRING: ${{ secrets.DEMO_APP_DB_URL }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_ENDPOINT_URL: ${{ secrets.AWS_ENDPOINT_URL }}
-          
-          # MLflow
           MLFLOW_TRACKING_URI: "https://mlflow.internal.opencloudhub.org"
           MLFLOW_TRACKING_INSECURE_TLS: "true"
-          
-          # LLM
           LLM_BASE_URL: "https://api.opencloudhub.org/models/qwen-0.5b/v1"
-          
-          # Code versioning metadata
           DOCKER_IMAGE_TAG: ${{ needs.resolve-image.outputs.resolved_tag }}
           GIT_SHA: ${{ needs.resolve-image.outputs.git_sha }}
           GITHUB_WORKFLOW: ${{ github.workflow }}
@@ -177,13 +168,9 @@ jobs:
           echo "  Data version: ${{ github.event.inputs.data_version }}"
           echo "  Docker image: ${DOCKER_IMAGE_TAG}"
           echo "  Git SHA: ${GIT_SHA}"
-          echo "  Working from: $(pwd)"
           echo ""
           
-          # Use the venv from the container image
-          export PATH="/workspace/project/.venv/bin:$PATH"
-          
-          # Run from the checked-out code (GitHub workspace)
+          # Run from the baked-in code
           python src/evaluation/evaluate_promts.py \
             --prompt-name "${{ github.event.inputs.prompt_name }}" \
             --prompt-versions ${{ github.event.inputs.prompt_versions }} \
@@ -191,12 +178,10 @@ jobs:
             ${{ github.event.inputs.auto_promote == 'true' && '--auto-promote' || '' }} \
             | tee /tmp/eval_output.txt
           
-          # Extract best prompt version from output
           BEST_VERSION=$(grep "Best prompt version:" /tmp/eval_output.txt | grep -oP 'v\K\d+' | head -1)
           
           if [ -z "$BEST_VERSION" ]; then
-            echo "❌ Could not extract best prompt version from output"
-            echo "Output was:"
+            echo "❌ Could not extract best prompt version"
             cat /tmp/eval_output.txt
             exit 1
           fi
