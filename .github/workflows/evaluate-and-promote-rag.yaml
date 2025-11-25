@@ -126,8 +126,7 @@ jobs:
   evaluate:
     name: 🧪 Evaluate Prompts
     needs: resolve-image
-    runs-on: ubuntu-20.04  #self-hosted-local
-    
+    runs-on: ubuntu-latest
     container:
       image: ${{ needs.resolve-image.outputs.full_image }}
       credentials:
