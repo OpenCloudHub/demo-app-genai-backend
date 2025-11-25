@@ -151,12 +151,11 @@ jobs:
       - name: Run MLflow Evaluation
         id: eval
         env:
-          # TODO: store as secrets
           # Database & Storage 
-          DB_CONNECTION_STRING: "postgresql+psycopg://demo-app:1234@localhost:5432/demo_app"
-          AWS_ACCESS_KEY_ID: admin
-          AWS_SECRET_ACCESS_KEY: 1234
-          AWS_ENDPOINT_URL: https://minio-api.internal.opencloudhub.org
+          DB_CONNECTION_STRING: ${{ secrets.DEMO_APP_DB_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ secrets.AWS_ENDPOINT_URL }}
           
           # MLflow
           MLFLOW_TRACKING_URI: "https://mlflow.internal.opencloudhub.org"

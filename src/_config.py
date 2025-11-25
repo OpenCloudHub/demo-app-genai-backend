@@ -11,7 +11,7 @@ class Config(BaseSettings):
     port: int = Field(default=8000)
 
     # PgVector settings
-    connection_string: str = (
+    db_connection_string: str = (
         "postgresql+psycopg://demo-app:1234@localhost:5432/demo_app"
     )
     table_name: str = "readme_embeddings"

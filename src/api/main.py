@@ -343,7 +343,7 @@ async def reload_prompt(request: ReloadPromptRequest):
 
         # Recreate the chain with new prompt version
         app.state.chain = RAGChain(
-            db_connection_string=CONFIG.connection_string,
+            db_connection_string=CONFIG.db_connection_string,
             table_name=CONFIG.table_name,
             embedding_model=CONFIG.embedding_model,
             llm_base_url=CONFIG.llm_base_url,
