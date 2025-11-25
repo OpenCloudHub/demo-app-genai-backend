@@ -39,16 +39,16 @@ jobs:
         id: resolve
         run: |
           INPUT_TAG="${{ github.event.inputs.image_tag }}"
-          DOCKER_REPO="${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend"
+          DOCKER_REPO="${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend-eval"  # Use -eval repo
           
-          echo "🔍 Resolving image: ${DOCKER_REPO}:${INPUT_TAG}"
+          echo "🔍 Resolving evaluation image: ${DOCKER_REPO}:${INPUT_TAG}"
           
           # Get Docker Hub token
           TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${DOCKER_REPO}:pull" \
             | jq -r '.token')
           
           if [ "$INPUT_TAG" = "latest" ]; then
-            echo "🔍 Finding latest main-* image..."
+            echo "🔍 Finding latest main-* evaluation image..."
             
             # Get digest of 'latest' tag
             LATEST_DIGEST=$(curl -s \
@@ -58,7 +58,7 @@ jobs:
               | jq -r '.config.digest')
             
             if [ "$LATEST_DIGEST" = "null" ] || [ -z "$LATEST_DIGEST" ]; then
-              echo "❌ Could not find 'latest' tag"
+              echo "❌ Could not find 'latest' tag for evaluation image"
               exit 1
             fi
             
@@ -71,7 +71,7 @@ jobs:
               | jq -r '.tags[]' | grep "^main-" || echo "")
             
             if [ -z "$ALL_TAGS" ]; then
-              echo "❌ No main-* tags found"
+              echo "❌ No main-* tags found in evaluation image"
               exit 1
             fi
             
@@ -86,7 +86,7 @@ jobs:
               
               if [ "$TAG_DIGEST" = "$LATEST_DIGEST" ]; then
                 RESOLVED_TAG="$tag"
-                echo "✅ Found matching tag: ${RESOLVED_TAG}"
+                echo "✅ Found matching evaluation tag: ${RESOLVED_TAG}"
                 break
               fi
             done
@@ -105,7 +105,7 @@ jobs:
               "https://registry-1.docker.io/v2/${DOCKER_REPO}/manifests/${RESOLVED_TAG}")
             
             if [ "$IMAGE_EXISTS" != "200" ]; then
-              echo "❌ Image not found: ${DOCKER_REPO}:${RESOLVED_TAG}"
+              echo "❌ Evaluation image not found: ${DOCKER_REPO}:${RESOLVED_TAG}"
               exit 1
             fi
           fi
@@ -115,7 +115,7 @@ jobs:
           
           FULL_IMAGE="${DOCKER_REPO}:${RESOLVED_TAG}"
           
-          echo "✅ Resolved image: ${FULL_IMAGE}"
+          echo "✅ Resolved evaluation image: ${FULL_IMAGE}"
           echo "📝 Git SHA: ${GIT_SHA}"
           
           echo "resolved_tag=${RESOLVED_TAG}" >> $GITHUB_OUTPUT

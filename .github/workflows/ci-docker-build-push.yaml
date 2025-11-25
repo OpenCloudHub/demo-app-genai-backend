@@ -6,12 +6,13 @@ on:
     paths:
       - src/**
       - Dockerfile
-      - .github/ci-docker-build-push.yaml
-
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/ci-docker-build-push.yaml
 
 jobs:
-  build-image:
-    name: 🎓 Build Image
+  build-serving-image:
+    name: 🚀 Build Serving Image
     uses: opencloudhub/.github/.github/workflows/shared-ci-docker-build-push.yaml@main
     with:
       repo-name: "demo-app-genai-backend"
@@ -19,6 +20,20 @@ jobs:
       dockerfile: "Dockerfile"
       target: "serving"
       push-on-pr: true
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+
+  build-evaluation-image:
+    name: 🧪 Build Evaluation Image
+    uses: opencloudhub/.github/.github/workflows/shared-ci-docker-build-push.yaml@main
+    with:
+      repo-name: "demo-app-genai-backend"
+      context: "."
+      dockerfile: "Dockerfile"
+      target: "evaluation"
+      push-on-pr: true
+      image-suffix: "-eval"  # Tag as demo-app-genai-backend-eval:main-abc123
     secrets:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
