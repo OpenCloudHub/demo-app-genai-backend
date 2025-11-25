@@ -8,47 +8,50 @@ ARG DISTRO=bookworm
 ARG UV_PY_TAG=python${PYTHON_MAJOR}.${PYTHON_MINOR}-${DISTRO}
 
 #==============================================================================#
-# Stage: Base with UV (tooling layer)
+# Stage: Base with UV + Core Dependencies (SHARED LAYER)
 FROM ghcr.io/astral-sh/uv:${UV_PY_TAG} AS uv_base
 
 WORKDIR /workspace/project
 
-# Install minimal system dependencies
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
     git \
     curl \
     wget \
-    libpq-dev \
+    libpq5 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH="/workspace/project" \
     PYTHONDONTWRITEBYTECODE=1
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+
+# ✅ Install all dependencies (creates shared .venv)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --no-install-project
 
 #==============================================================================#
 # Stage: Development (for devcontainer)
 FROM uv_base AS dev
 
-COPY pyproject.toml uv.lock ./
-
-# Install all dependencies including dev
-# Don't create venv - let devcontainer handle it at runtime
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --all-extras
-
 ENV ENVIRONMENT=development
 
+# Install dev dependencies
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-install-project
+
 #==============================================================================#
-# Stage: SERVING (production serving image)
+# Stage: API SERVING (production API image)
 FROM python:3.12-slim-bookworm AS serving
 
 WORKDIR /workspace/project
 
-# Install system dependencies
+# Install runtime system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
@@ -61,7 +64,6 @@ RUN groupadd -g 1000 app && \
     useradd -m -u 1000 -g 1000 -s /bin/bash app && \
     chown -R app:app /workspace/project
 
-# Switch to non-root user
 USER app
 
 # Copy UV binary
@@ -70,11 +72,10 @@ COPY --from=uv_base /usr/local/bin/uv /usr/local/bin/uv
 # Copy dependency files
 COPY --chown=app:app pyproject.toml uv.lock ./
 
-# Install dependencies with caching
-RUN --mount=type=cache,target=/home/app/.cache/uv,uid=1000,gid=1000 \
-    uv sync --no-dev --no-install-project
+# ✅ Copy shared .venv from uv_base
+COPY --from=uv_base --chown=app:app /workspace/project/.venv /workspace/project/.venv
 
-# Copy source code
+# Copy only source code (minimal layer)
 COPY --chown=app:app src/ ./src/
 
 ENV VIRTUAL_ENV="/workspace/project/.venv" \
@@ -89,3 +90,25 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 EXPOSE 8000
 
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+#==============================================================================#
+# Stage: EVALUATION (for running evaluations in CI)
+FROM uv_base AS evaluation
+
+WORKDIR /workspace/project
+
+# Install git (needed for DVC)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Copy entire project for evaluation
+COPY --chown=root:root . .
+
+ENV VIRTUAL_ENV="/workspace/project/.venv" \
+    PATH="/workspace/project/.venv/bin:$PATH" \
+    PYTHONPATH="/workspace/project" \
+    ENVIRONMENT=evaluation
+
+# Default command for evaluation
+CMD ["python", "src/evaluation/evaluate_promts.py"]
