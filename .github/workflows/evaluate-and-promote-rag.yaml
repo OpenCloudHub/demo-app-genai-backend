@@ -137,11 +137,16 @@ jobs:
       best_prompt_version: ${{ steps.eval.outputs.best_prompt_version }}
     
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Display environment info
         run: |
           echo "🐳 Running in container: ${{ needs.resolve-image.outputs.full_image }}"
           echo "📝 Git SHA: ${{ needs.resolve-image.outputs.git_sha }}"
           echo "📍 Working directory: $(pwd)"
+          echo "📂 Contents:"
+          ls -la
 
       - name: Run MLflow Evaluation
         id: eval
@@ -172,14 +177,13 @@ jobs:
           echo "  Data version: ${{ github.event.inputs.data_version }}"
           echo "  Docker image: ${DOCKER_IMAGE_TAG}"
           echo "  Git SHA: ${GIT_SHA}"
-          echo "  Current dir: $(pwd)"
-          echo "  Code location: /workspace/project"
+          echo "  Working from: $(pwd)"
           echo ""
-
           
-          # Activate virtual environment from the image
+          # Use the venv from the container image
           export PATH="/workspace/project/.venv/bin:$PATH"
           
+          # Run from the checked-out code (GitHub workspace)
           python src/evaluation/evaluate_promts.py \
             --prompt-name "${{ github.event.inputs.prompt_name }}" \
             --prompt-versions ${{ github.event.inputs.prompt_versions }} \
@@ -209,7 +213,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: evaluation-logs-${{ github.run_number }}
-          path: /workspace/project/eval_output.txt
+          path: /tmp/eval_output.txt
           retention-days: 30
 
   # Step 3: Trigger API reload with new prompt
