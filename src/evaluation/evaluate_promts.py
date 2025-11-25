@@ -62,8 +62,8 @@ def load_eval_dataset(data_version: str):
 
     # Load from DVC
     csv_content = dvc.api.read(
-        path=CONFIG.prompt.eval_data_path,
-        repo=CONFIG.prompt.dvc_repo,
+        path=CONFIG.eval_data_path,
+        repo=CONFIG.dvc_repo,
         rev=data_version,
         mode="r",
     )
@@ -76,10 +76,10 @@ def load_eval_dataset(data_version: str):
         experiment_id=exp_id,
         tags={
             "dvc_version": data_version,
-            "dvc_repo": CONFIG.prompt.dvc_repo,
+            "dvc_repo": CONFIG.dvc_repo,
             "source": "dvc",
-            "table_name": CONFIG.db.table_name,
-            "embedding_model": CONFIG.models.embedding_model,
+            "table_name": CONFIG.table_name,
+            "embedding_model": CONFIG.embedding_model,
             "num_questions": str(len(df)),
             "created_at": pd.Timestamp.now().isoformat(),
         },
@@ -188,14 +188,14 @@ def evaluate_prompt(prompt_version: int, name: str, dataset, data_version: str):
     print(f"\n{'=' * 60}\nEvaluating v{prompt_version}\n{'=' * 60}")
 
     rag = RAGChain(
-        db_connection_string=CONFIG.db.connection_string,
-        table_name=CONFIG.db.table_name,
-        embedding_model=CONFIG.models.embedding_model,
-        llm_base_url=CONFIG.models.llm_base_url,
-        llm_model=CONFIG.models.llm_model,
+        db_connection_string=CONFIG.connection_string,
+        table_name=CONFIG.table_name,
+        embedding_model=CONFIG.embedding_model,
+        llm_base_url=CONFIG.llm_base_url,
+        llm_model=CONFIG.llm_model,
         prompt_name=name,
         prompt_version=prompt_version,
-        top_k=CONFIG.db.top_k,
+        top_k=CONFIG.top_k,
     )
 
     def predict_fn(question: str) -> str:
@@ -207,12 +207,12 @@ def evaluate_prompt(prompt_version: int, name: str, dataset, data_version: str):
         # Log comprehensive parameters
         mlflow.log_param("prompt_name", name)
         mlflow.log_param("prompt_version", prompt_version)
-        mlflow.log_param("embedding_model", CONFIG.models.embedding_model)
-        mlflow.log_param("llm_model", CONFIG.models.llm_model)
-        mlflow.log_param("table_name", CONFIG.db.table_name)
-        mlflow.log_param("top_k", CONFIG.db.top_k)
+        mlflow.log_param("embedding_model", CONFIG.embedding_model)
+        mlflow.log_param("llm_model", CONFIG.llm_model)
+        mlflow.log_param("table_name", CONFIG.table_name)
+        mlflow.log_param("top_k", CONFIG.top_k)
         mlflow.log_param("eval_data_version", data_version)
-        mlflow.log_param("dvc_repo", CONFIG.prompt.dvc_repo)
+        mlflow.log_param("dvc_repo", CONFIG.dvc_repo)
         mlflow.update_current_trace(
             tags={
                 "prompt_version": str(prompt_version),
@@ -225,7 +225,7 @@ def evaluate_prompt(prompt_version: int, name: str, dataset, data_version: str):
         # Create scorers including your own LLM judge
         scorers = [
             concept_coverage,
-            create_llm_judge(CONFIG.models.llm_base_url, CONFIG.models.llm_model),
+            create_llm_judge(CONFIG.llm_base_url, CONFIG.llm_model),
         ]
 
         results = evaluate(

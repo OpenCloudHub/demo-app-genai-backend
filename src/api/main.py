@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     app.state.status = APIStatus.LOADING
     app.state.chain = None
     app.state.prompt_name = "readme-rag-prompt"
-    app.state.prompt_version = CONFIG.prompt.prompt_version
+    app.state.prompt_version = CONFIG.prompt_version
     app.state.start_time = datetime.now(timezone.utc)
 
     try:
@@ -62,14 +62,14 @@ async def lifespan(app: FastAPI):
         # Try to initialize RAG chain
         try:
             app.state.chain = RAGChain(
-                db_connection_string=CONFIG.db.connection_string,
-                table_name=CONFIG.db.table_name,
-                embedding_model=CONFIG.models.embedding_model,
-                llm_base_url=CONFIG.models.llm_base_url,
-                llm_model=CONFIG.models.llm_model,
+                db_connection_string=CONFIG.connection_string,
+                table_name=CONFIG.table_name,
+                embedding_model=CONFIG.embedding_model,
+                llm_base_url=CONFIG.llm_base_url,
+                llm_model=CONFIG.llm_model,
                 prompt_name=app.state.prompt_name,
                 prompt_version=app.state.prompt_version,
-                top_k=CONFIG.db.top_k,
+                top_k=CONFIG.top_k,
             )
 
             # Verify chain is properly initialized
@@ -343,14 +343,14 @@ async def reload_prompt(request: ReloadPromptRequest):
 
         # Recreate the chain with new prompt version
         app.state.chain = RAGChain(
-            db_connection_string=CONFIG.db.connection_string,
-            table_name=CONFIG.db.table_name,
-            embedding_model=CONFIG.models.embedding_model,
-            llm_base_url=CONFIG.models.llm_base_url,
-            llm_model=CONFIG.models.llm_model,
+            db_connection_string=CONFIG.connection_string,
+            table_name=CONFIG.table_name,
+            embedding_model=CONFIG.embedding_model,
+            llm_base_url=CONFIG.llm_base_url,
+            llm_model=CONFIG.llm_model,
             prompt_name=app.state.prompt_name,
             prompt_version=request.prompt_version,
-            top_k=CONFIG.db.top_k,
+            top_k=CONFIG.top_k,
         )
 
         app.state.prompt_version = request.prompt_version

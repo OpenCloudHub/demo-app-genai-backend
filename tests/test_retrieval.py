@@ -9,7 +9,7 @@ from src.rag.chain import RAGChain
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-os.environ["MLFLOW_TRACKING_URI"] = CONFIG.prompt.mlflow_tracking_uri
+os.environ["MLFLOW_TRACKING_URI"] = CONFIG.mlflow_tracking_uri
 
 # Test questions
 test_questions = [
@@ -20,11 +20,11 @@ test_questions = [
 
 print("Initializing RAG chain...")
 rag = RAGChain(
-    db_connection_string=CONFIG.db.connection_string,
-    table_name=CONFIG.db.table_name,
-    embedding_model=CONFIG.models.embedding_model,
-    llm_base_url=CONFIG.models.llm_base_url,
-    llm_model=CONFIG.models.llm_model,
+    db_connection_string=CONFIG.connection_string,
+    table_name=CONFIG.table_name,
+    embedding_model=CONFIG.embedding_model,
+    llm_base_url=CONFIG.llm_base_url,
+    llm_model=CONFIG.llm_model,
     prompt_name="readme-rag-prompt",
     prompt_version=1,
     top_k=5,
