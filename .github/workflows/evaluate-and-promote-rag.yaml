@@ -142,10 +142,6 @@ jobs:
           echo "🐳 Running in container: ${{ needs.resolve-image.outputs.full_image }}"
           echo "📝 Git SHA: ${{ needs.resolve-image.outputs.git_sha }}"
           echo "📍 Working directory: $(pwd)"
-          echo "🐍 Python version: $(python --version)"
-          echo ""
-          echo "📦 Key packages:"
-          pip list | grep -E "(mlflow|dvc|langchain|fastapi)" || echo "  (checking...)"
 
       - name: Run MLflow Evaluation
         id: eval
@@ -176,25 +172,31 @@ jobs:
           echo "  Data version: ${{ github.event.inputs.data_version }}"
           echo "  Docker image: ${DOCKER_IMAGE_TAG}"
           echo "  Git SHA: ${GIT_SHA}"
+          echo "  Current dir: $(pwd)"
+          echo "  Code location: /workspace/project"
           echo ""
           
-          # Run evaluation (code is already in the container at /workspace/project)
+          # The code is in the image at /workspace/project (from Dockerfile)
+          # No need to checkout - just use what's in the image
           cd /workspace/project
+          
+          # Activate virtual environment from the image
+          export PATH="/workspace/project/.venv/bin:$PATH"
           
           python src/evaluation/evaluate_promts.py \
             --prompt-name "${{ github.event.inputs.prompt_name }}" \
             --prompt-versions ${{ github.event.inputs.prompt_versions }} \
             --data-version "${{ github.event.inputs.data_version }}" \
-            ${{ github.event.inputs.auto_promote == 'true' && '--auto-promote' }} \
-            | tee eval_output.txt
+            ${{ github.event.inputs.auto_promote == 'true' && '--auto-promote' || '' }} \
+            | tee /tmp/eval_output.txt
           
           # Extract best prompt version from output
-          BEST_VERSION=$(grep "Best prompt version:" eval_output.txt | grep -oP 'v\K\d+' | head -1)
+          BEST_VERSION=$(grep "Best prompt version:" /tmp/eval_output.txt | grep -oP 'v\K\d+' | head -1)
           
           if [ -z "$BEST_VERSION" ]; then
             echo "❌ Could not extract best prompt version from output"
             echo "Output was:"
-            cat eval_output.txt
+            cat /tmp/eval_output.txt
             exit 1
           fi
           
