@@ -11,11 +11,15 @@ on:
       - .github/workflows/ci-docker-build-push.yaml
 
 jobs:
-  build-and-push:
-    name: 🐳 Build Multi-Stage Images
+  # Job 1: Build and push SERVING image
+  build-serving:
+    name: 🚀 Build Serving Image
     runs-on: self-hosted-local
-    
     steps:
+      - name: 🧹 Cleanup
+        run: |
+          docker buildx prune -f --keep-storage 5GB || true
+          
       - name: 📥 Checkout
         uses: actions/checkout@v4
       
@@ -31,20 +35,9 @@ jobs:
       - name: 🏷️ Extract metadata
         id: meta
         run: |
-          BRANCH=${GITHUB_REF#refs/heads/}
           SHA=${GITHUB_SHA::7}
-          
-          if [ "$BRANCH" = "main" ]; then
-            TAG_PREFIX="main-${SHA}"
-          else
-            # For PRs, extract PR number
-            PR_NUM=$(echo "$GITHUB_REF" | sed 's|refs/pull/||' | sed 's|/merge||')
-            TAG_PREFIX="pr-${PR_NUM}-${SHA}"
-          fi
-          
-          echo "tag_prefix=${TAG_PREFIX}" >> $GITHUB_OUTPUT
+          echo "tag_prefix=main-${SHA}" >> $GITHUB_OUTPUT
           echo "sha=${SHA}" >> $GITHUB_OUTPUT
-          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
       
       - name: 📦 Build and push serving image
         uses: docker/build-push-action@v6
@@ -56,8 +49,36 @@ jobs:
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:${{ steps.meta.outputs.tag_prefix }}
             ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:latest
-          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:buildcache,mode=max
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:buildcache-serving
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:buildcache-serving,mode=max
+
+  # Job 2: Build and push EVALUATION image (runs after serving)
+  build-evaluation:
+    name: 🧪 Build Evaluation Image
+    runs-on: self-hosted-local
+    needs: build-serving
+    steps:
+      - name: 🧹 Cleanup
+        run: |
+          docker buildx prune -f --keep-storage 5GB || true
+          
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+      
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: 🔐 Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      
+      - name: 🏷️ Extract metadata
+        id: meta
+        run: |
+          SHA=${GITHUB_SHA::7}
+          echo "tag_prefix=main-${SHA}" >> $GITHUB_OUTPUT
       
       - name: 📦 Build and push evaluation image
         uses: docker/build-push-action@v6
@@ -69,26 +90,19 @@ jobs:
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:${{ steps.meta.outputs.tag_prefix }}-eval
             ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:latest-eval
-          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:buildcache,mode=max
-      
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:buildcache-eval
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:buildcache-eval,mode=max
+
+  # Job 3: Summary
+  summary:
+    name: 📊 Build Summary
+    runs-on: self-hosted-local
+    needs: [build-serving, build-evaluation]
+    steps:
       - name: 📊 Image summary
         run: |
-          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
-          ## 🐳 Built Images
-          
-          ### Serving Image (API)
-          ```
-          ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:${{ steps.meta.outputs.tag_prefix }}
-          ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:latest
-          ```
-          
-          ### Evaluation Image (CI)
-          ```
-          ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:${{ steps.meta.outputs.tag_prefix }}-eval
-          ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:latest-eval
-          ```
-          
-          **Branch:** `${{ steps.meta.outputs.branch }}`  
-          **Commit:** `${{ steps.meta.outputs.sha }}`
-          EOF
+          SHA=${GITHUB_SHA::7}
+          echo "## 🐳 Built Images" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Serving:** \`${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:main-${SHA}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Evaluation:** \`${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:main-${SHA}-eval\`" >> $GITHUB_STEP_SUMMARY
