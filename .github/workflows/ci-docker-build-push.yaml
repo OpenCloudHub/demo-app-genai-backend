@@ -46,6 +46,7 @@ jobs:
           file: ./Dockerfile
           target: serving
           push: true
+          provenance: false
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:${{ steps.meta.outputs.tag_prefix }}
             ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend:latest

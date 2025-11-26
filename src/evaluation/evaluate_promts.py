@@ -325,8 +325,8 @@ def run_evaluation(
     print(f"  LLM judge: {comparison_df.loc[best_idx, 'llm_judge']:.3f}")
 
     if auto_promote:
-        print(f"\nPromoting version {best_version} to @production...")
-        mlflow.set_prompt_alias(prompt_name, alias="production", version=best_version)
+        print(f"\nPromoting version {best_version} to @champion...")
+        mlflow.set_prompt_alias(prompt_name, alias="champion", version=best_version)
         print("✓ Promoted!")
 
     return {
@@ -367,7 +367,7 @@ if __name__ == "__main__":
     )
     print(f"  LLM judge: {result['metrics'].get('answer_quality_judge/mean', 0):.3f}")
     print("\nLoad in production with:")
-    print(f"  prompts:/{args.prompt_name}@production")
+    print(f"  prompts:/{args.prompt_name}@champion")
     print("Or specific version with:")
     print(f"  prompts:/{args.prompt_name}@{result['best_prompt_version']}")
     print(f"{'=' * 60}\n")
