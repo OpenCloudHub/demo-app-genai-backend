@@ -92,7 +92,7 @@ EXPOSE 8000
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 #==============================================================================#
-# Stage: EVALUATION (for running evaluations in CI)
+# Stage: EVALUATION (for running evaluations in CI or Cluster)
 FROM uv_base AS evaluation
 
 WORKDIR /workspace/project
