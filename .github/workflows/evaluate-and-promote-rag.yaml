@@ -27,105 +27,105 @@ on:
 jobs:
   # Step 1: Resolve the Docker image to use
   resolve-image:
-  name: 🔍 Resolve Docker Image
-  runs-on: ubuntu-latest
-  outputs:
-    resolved_tag: ${{ steps.resolve.outputs.resolved_tag }}
-    git_sha: ${{ steps.resolve.outputs.git_sha }}
-    full_image: ${{ steps.resolve.outputs.full_image }}
-  steps:
-    - name: Resolve Docker image tag
-      id: resolve
-      run: |
-        INPUT_TAG="${{ github.event.inputs.image_tag }}"
-        DOCKER_REPO="${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend"
-        
-        echo "🔍 Resolving evaluation image tag: ${INPUT_TAG}"
-        
-        # Get Docker Hub token
-        TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${DOCKER_REPO}:pull" \
-          | jq -r '.token')
-        
-        if [ "$INPUT_TAG" = "latest-eval" ] || [ "$INPUT_TAG" = "latest" ]; then
-          echo "🔍 Finding latest main-*-eval image..."
+    name: 🔍 Resolve Docker Image
+    runs-on: ubuntu-latest
+    outputs:
+      resolved_tag: ${{ steps.resolve.outputs.resolved_tag }}
+      git_sha: ${{ steps.resolve.outputs.git_sha }}
+      full_image: ${{ steps.resolve.outputs.full_image }}
+    steps:
+      - name: Resolve Docker image tag
+        id: resolve
+        run: |
+          INPUT_TAG="${{ github.event.inputs.image_tag }}"
+          DOCKER_REPO="${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend"
           
-          # Get digest of 'latest-eval' tag
-          LATEST_DIGEST=$(curl -s \
-            -H "Authorization: Bearer ${TOKEN}" \
-            -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
-            "https://registry-1.docker.io/v2/${DOCKER_REPO}/manifests/latest-eval" \
-            | jq -r '.config.digest')
+          echo "🔍 Resolving evaluation image tag: ${INPUT_TAG}"
           
-          if [ "$LATEST_DIGEST" = "null" ] || [ -z "$LATEST_DIGEST" ]; then
-            echo "❌ Could not find 'latest-eval' tag"
-            exit 1
-          fi
+          # Get Docker Hub token
+          TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${DOCKER_REPO}:pull" \
+            | jq -r '.token')
           
-          echo "📦 Latest digest: ${LATEST_DIGEST}"
-          
-          # Get all main-*-eval tags
-          ALL_TAGS=$(curl -s \
-            -H "Authorization: Bearer ${TOKEN}" \
-            "https://registry-1.docker.io/v2/${DOCKER_REPO}/tags/list" \
-            | jq -r '.tags[]' | grep "^main-.*-eval$" || echo "")
-          
-          if [ -z "$ALL_TAGS" ]; then
-            echo "❌ No main-*-eval tags found"
-            exit 1
-          fi
-          
-          # Find matching tag
-          RESOLVED_TAG=""
-          for tag in $ALL_TAGS; do
-            TAG_DIGEST=$(curl -s \
+          if [ "$INPUT_TAG" = "latest-eval" ] || [ "$INPUT_TAG" = "latest" ]; then
+            echo "🔍 Finding latest main-*-eval image..."
+            
+            # Get digest of 'latest-eval' tag
+            LATEST_DIGEST=$(curl -s \
               -H "Authorization: Bearer ${TOKEN}" \
               -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
-              "https://registry-1.docker.io/v2/${DOCKER_REPO}/manifests/${tag}" \
+              "https://registry-1.docker.io/v2/${DOCKER_REPO}/manifests/latest-eval" \
               | jq -r '.config.digest')
             
-            if [ "$TAG_DIGEST" = "$LATEST_DIGEST" ]; then
-              RESOLVED_TAG="$tag"
-              echo "✅ Found matching evaluation tag: ${RESOLVED_TAG}"
-              break
+            if [ "$LATEST_DIGEST" = "null" ] || [ -z "$LATEST_DIGEST" ]; then
+              echo "❌ Could not find 'latest-eval' tag"
+              exit 1
             fi
-          done
-          
-          if [ -z "$RESOLVED_TAG" ]; then
-            echo "❌ Could not find main-*-eval tag matching latest digest"
-            exit 1
-          fi
-        else
-          # User specified explicit tag, ensure it has -eval suffix
-          if [[ "$INPUT_TAG" != *-eval ]]; then
-            RESOLVED_TAG="${INPUT_TAG}-eval"
+            
+            echo "📦 Latest digest: ${LATEST_DIGEST}"
+            
+            # Get all main-*-eval tags
+            ALL_TAGS=$(curl -s \
+              -H "Authorization: Bearer ${TOKEN}" \
+              "https://registry-1.docker.io/v2/${DOCKER_REPO}/tags/list" \
+              | jq -r '.tags[]' | grep "^main-.*-eval$" || echo "")
+            
+            if [ -z "$ALL_TAGS" ]; then
+              echo "❌ No main-*-eval tags found"
+              exit 1
+            fi
+            
+            # Find matching tag
+            RESOLVED_TAG=""
+            for tag in $ALL_TAGS; do
+              TAG_DIGEST=$(curl -s \
+                -H "Authorization: Bearer ${TOKEN}" \
+                -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+                "https://registry-1.docker.io/v2/${DOCKER_REPO}/manifests/${tag}" \
+                | jq -r '.config.digest')
+              
+              if [ "$TAG_DIGEST" = "$LATEST_DIGEST" ]; then
+                RESOLVED_TAG="$tag"
+                echo "✅ Found matching evaluation tag: ${RESOLVED_TAG}"
+                break
+              fi
+            done
+            
+            if [ -z "$RESOLVED_TAG" ]; then
+              echo "❌ Could not find main-*-eval tag matching latest digest"
+              exit 1
+            fi
           else
-            RESOLVED_TAG="$INPUT_TAG"
+            # User specified explicit tag, ensure it has -eval suffix
+            if [[ "$INPUT_TAG" != *-eval ]]; then
+              RESOLVED_TAG="${INPUT_TAG}-eval"
+            else
+              RESOLVED_TAG="$INPUT_TAG"
+            fi
+            
+            echo "✅ Using explicit tag: ${RESOLVED_TAG}"
+            
+            # Validate tag exists
+            IMAGE_EXISTS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: Bearer ${TOKEN}" \
+              "https://registry-1.docker.io/v2/${DOCKER_REPO}/manifests/${RESOLVED_TAG}")
+            
+            if [ "$IMAGE_EXISTS" != "200" ]; then
+              echo "❌ Evaluation image not found: ${DOCKER_REPO}:${RESOLVED_TAG}"
+              exit 1
+            fi
           fi
           
-          echo "✅ Using explicit tag: ${RESOLVED_TAG}"
+          # Extract Git SHA from tag (format: main-abc123f-eval or pr-123-abc123f-eval)
+          GIT_SHA=$(echo "$RESOLVED_TAG" | sed 's/-eval$//' | grep -oP '(?<=-)[a-f0-9]{7}$' || echo "unknown")
           
-          # Validate tag exists
-          IMAGE_EXISTS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer ${TOKEN}" \
-            "https://registry-1.docker.io/v2/${DOCKER_REPO}/manifests/${RESOLVED_TAG}")
+          FULL_IMAGE="${DOCKER_REPO}:${RESOLVED_TAG}"
           
-          if [ "$IMAGE_EXISTS" != "200" ]; then
-            echo "❌ Evaluation image not found: ${DOCKER_REPO}:${RESOLVED_TAG}"
-            exit 1
-          fi
-        fi
-        
-        # Extract Git SHA from tag (format: main-abc123f-eval or pr-123-abc123f-eval)
-        GIT_SHA=$(echo "$RESOLVED_TAG" | sed 's/-eval$//' | grep -oP '(?<=-)[a-f0-9]{7}$' || echo "unknown")
-        
-        FULL_IMAGE="${DOCKER_REPO}:${RESOLVED_TAG}"
-        
-        echo "✅ Resolved evaluation image: ${FULL_IMAGE}"
-        echo "📝 Git SHA: ${GIT_SHA}"
-        
-        echo "resolved_tag=${RESOLVED_TAG}" >> $GITHUB_OUTPUT
-        echo "git_sha=${GIT_SHA}" >> $GITHUB_OUTPUT
-        echo "full_image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
+          echo "✅ Resolved evaluation image: ${FULL_IMAGE}"
+          echo "📝 Git SHA: ${GIT_SHA}"
+          
+          echo "resolved_tag=${RESOLVED_TAG}" >> $GITHUB_OUTPUT
+          echo "git_sha=${GIT_SHA}" >> $GITHUB_OUTPUT
+          echo "full_image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
 
   # Step 2: Run evaluation in the resolved Docker container
   evaluate:
