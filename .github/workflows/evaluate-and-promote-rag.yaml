@@ -120,70 +120,53 @@ jobs:
     name: 🧪 Evaluate Prompts
     needs: resolve-image
     runs-on: ubuntu-latest
-    container:
-      image: ${{ needs.resolve-image.outputs.full_image }}
-      options: --workdir /workspace/project  # Force container workdir
-      credentials:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_TOKEN }}
-    
     outputs:
       best_prompt_version: ${{ steps.eval.outputs.best_prompt_version }}
     
     steps:
-      - name: Verify environment
-        run: |
-          echo "📍 Working directory: $(pwd)"
-          echo "📂 Contents:"
-          ls -la
-          echo "🐍 Python location: $(which python)"
-          echo "📦 DVC available: $(python -c 'import dvc; print(dvc.__version__)' 2>/dev/null || echo 'NOT FOUND')"
+      - name: 🔐 Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: Run MLflow Evaluation
+      - name: 🐳 Pull evaluation image
+        run: docker pull ${{ needs.resolve-image.outputs.full_image }}
+
+      - name: 🧪 Run MLflow Evaluation
         id: eval
-        env:
-          DB_CONNECTION_STRING: ${{ secrets.DEMO_APP_DB_URL }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_ENDPOINT_URL: ${{ secrets.AWS_ENDPOINT_URL }}
-          MLFLOW_TRACKING_URI: "https://mlflow.internal.opencloudhub.org"
-          MLFLOW_TRACKING_INSECURE_TLS: "true"
-          LLM_BASE_URL: "https://api.opencloudhub.org/models/qwen-0.5b/v1"
-          DOCKER_IMAGE_TAG: ${{ needs.resolve-image.outputs.resolved_tag }}
-          GIT_SHA: ${{ needs.resolve-image.outputs.git_sha }}
-          GITHUB_WORKFLOW: ${{ github.workflow }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: |
           echo "🚀 Starting evaluation with:"
           echo "  Prompt: ${{ github.event.inputs.prompt_name }}"
           echo "  Versions: ${{ github.event.inputs.prompt_versions }}"
-          echo "  Data version: ${{ github.event.inputs.data_version }}"
-          echo "  Docker image: ${DOCKER_IMAGE_TAG}"
-          echo "  Git SHA: ${GIT_SHA}"
-          echo ""
+          echo "  Docker image: ${{ needs.resolve-image.outputs.full_image }}"
           
-          # Run from the baked-in code
-          python src/evaluation/evaluate_promts.py \
-            --prompt-name "${{ github.event.inputs.prompt_name }}" \
-            --prompt-versions ${{ github.event.inputs.prompt_versions }} \
-            --data-version "${{ github.event.inputs.data_version }}" \
-            ${{ github.event.inputs.auto_promote == 'true' && '--auto-promote' || '' }} \
+          docker run --rm \
+            -e DB_CONNECTION_STRING="${{ secrets.DEMO_APP_DB_URL }}" \
+            -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
+            -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+            -e AWS_ENDPOINT_URL="${{ secrets.AWS_ENDPOINT_URL }}" \
+            -e MLFLOW_TRACKING_URI="https://mlflow.internal.opencloudhub.org" \
+            -e MLFLOW_TRACKING_INSECURE_TLS="true" \
+            -e LLM_BASE_URL="https://api.opencloudhub.org/models/qwen-0.5b/v1" \
+            -e DOCKER_IMAGE_TAG="${{ needs.resolve-image.outputs.resolved_tag }}" \
+            -e GIT_SHA="${{ needs.resolve-image.outputs.git_sha }}" \
+            ${{ needs.resolve-image.outputs.full_image }} \
+            python /workspace/project/src/evaluation/evaluate_promts.py \
+              --prompt-name "${{ github.event.inputs.prompt_name }}" \
+              --prompt-versions ${{ github.event.inputs.prompt_versions }} \
+              --data-version "${{ github.event.inputs.data_version }}" \
+              ${{ github.event.inputs.auto_promote == 'true' && '--auto-promote' || '' }} \
             | tee /tmp/eval_output.txt
           
           BEST_VERSION=$(grep "Best prompt version:" /tmp/eval_output.txt | grep -oP 'v\K\d+' | head -1)
           
           if [ -z "$BEST_VERSION" ]; then
             echo "❌ Could not extract best prompt version"
-            cat /tmp/eval_output.txt
             exit 1
           fi
           
-          echo ""
-          echo "✅ Evaluation complete!"
-          echo "📊 Best prompt version: ${BEST_VERSION}"
-          echo "🐳 Evaluated using: ${DOCKER_IMAGE_TAG} (${GIT_SHA})"
-          
+          echo "✅ Best prompt version: ${BEST_VERSION}"
           echo "best_prompt_version=${BEST_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Upload evaluation logs
