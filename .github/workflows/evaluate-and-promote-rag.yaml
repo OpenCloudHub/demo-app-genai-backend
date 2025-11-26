@@ -20,262 +20,204 @@ on:
         type: boolean
         default: true
       image_tag:
-        description: 'Docker image tag (use "latest" to auto-resolve to main-SHA, append -eval for evaluation image)'
+        description: 'Docker image tag'
         required: false
         default: 'latest-eval'
 
 jobs:
-  # Step 1: Resolve the Docker image to use
-  resolve-image:
-    name: 🔍 Resolve Docker Image
-    runs-on: ubuntu-latest
-    outputs:
-      resolved_tag: ${{ steps.resolve.outputs.resolved_tag }}
-      git_sha: ${{ steps.resolve.outputs.git_sha }}
-      full_image: ${{ steps.resolve.outputs.full_image }}
-    steps:
-      - name: Resolve Docker image tag
-        id: resolve
-        run: |
-          INPUT_TAG="${{ github.event.inputs.image_tag }}"
-          DOCKER_REPO="${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend"
-          
-          echo "🔍 Resolving evaluation image tag: ${INPUT_TAG}"
-          
-          # Get Docker Hub token
-          TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${DOCKER_REPO}:pull" \
-            | jq -r '.token')
-          
-          if [ "$INPUT_TAG" = "latest-eval" ] || [ "$INPUT_TAG" = "latest" ]; then
-            echo "🔍 Finding latest main-*-eval image..."
-            
-            # Check if latest-eval exists (accept both manifest types)
-            HTTP_CODE=$(curl -s -o /tmp/manifest.json -w "%{http_code}" \
-              -H "Authorization: Bearer ${TOKEN}" \
-              -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json" \
-              "https://registry-1.docker.io/v2/${DOCKER_REPO}/manifests/latest-eval")
-            
-            if [ "$HTTP_CODE" != "200" ]; then
-              echo "❌ Could not find 'latest-eval' tag (HTTP ${HTTP_CODE})"
-              cat /tmp/manifest.json
-              exit 1
-            fi
-            
-            echo "✅ Found 'latest-eval' tag"
-            
-            # Get all tags and find the latest main-*-eval
-            ALL_TAGS=$(curl -s \
-              -H "Authorization: Bearer ${TOKEN}" \
-              "https://registry-1.docker.io/v2/${DOCKER_REPO}/tags/list" \
-              | jq -r '.tags[]' 2>/dev/null | grep "^main-.*-eval$" | sort -r || echo "")
-            
-            echo "📦 Available main-*-eval tags:"
-            echo "$ALL_TAGS" | head -5
-            
-            if [ -z "$ALL_TAGS" ]; then
-              echo "⚠️ No main-*-eval tags found, using latest-eval directly"
-              RESOLVED_TAG="latest-eval"
-            else
-              # Use the most recent one (sorted reverse alphabetically)
-              RESOLVED_TAG=$(echo "$ALL_TAGS" | head -1)
-              echo "✅ Using most recent tag: ${RESOLVED_TAG}"
-            fi
-          else
-            # User specified explicit tag
-            if [[ "$INPUT_TAG" != *-eval ]]; then
-              RESOLVED_TAG="${INPUT_TAG}-eval"
-            else
-              RESOLVED_TAG="$INPUT_TAG"
-            fi
-            
-            echo "✅ Using explicit tag: ${RESOLVED_TAG}"
-            
-            # Validate tag exists
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-              -H "Authorization: Bearer ${TOKEN}" \
-              -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json" \
-              "https://registry-1.docker.io/v2/${DOCKER_REPO}/manifests/${RESOLVED_TAG}")
-            
-            if [ "$HTTP_CODE" != "200" ]; then
-              echo "❌ Evaluation image not found: ${DOCKER_REPO}:${RESOLVED_TAG}"
-              exit 1
-            fi
-          fi
-          
-          # Extract Git SHA from tag (format: main-abc123f-eval)
-          GIT_SHA=$(echo "$RESOLVED_TAG" | sed 's/-eval$//' | sed 's/^main-//' || echo "unknown")
-          
-          FULL_IMAGE="${DOCKER_REPO}:${RESOLVED_TAG}"
-          
-          echo ""
-          echo "✅ Resolved evaluation image: ${FULL_IMAGE}"
-          echo "📝 Git SHA: ${GIT_SHA}"
-          
-          echo "resolved_tag=${RESOLVED_TAG}" >> $GITHUB_OUTPUT
-          echo "git_sha=${GIT_SHA}" >> $GITHUB_OUTPUT
-          echo "full_image=${FULL_IMAGE}" >> $GITHUB_OUTPUT
-
-  # Step 2: Run evaluation in the resolved Docker container
   evaluate:
     name: 🧪 Evaluate Prompts
-    needs: resolve-image
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-local
     outputs:
-      best_prompt_version: ${{ steps.eval.outputs.best_prompt_version }}
-    
+      best_prompt_version: ${{ steps.get-result.outputs.best_prompt_version }}
+
     steps:
-      - name: 🔐 Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
-
-      - name: 🐳 Pull evaluation image
-        run: docker pull ${{ needs.resolve-image.outputs.full_image }}
-
-      - name: 🧪 Run MLflow Evaluation
-        id: eval
+      - name: 🔧 Install kubectl
         run: |
-          echo "🚀 Starting evaluation with:"
-          echo "  Prompt: ${{ github.event.inputs.prompt_name }}"
-          echo "  Versions: ${{ github.event.inputs.prompt_versions }}"
-          echo "  Docker image: ${{ needs.resolve-image.outputs.full_image }}"
+          if [ ! -f ~/.local/bin/kubectl ]; then
+            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+            chmod +x kubectl
+            mkdir -p ~/.local/bin
+            mv kubectl ~/.local/bin/
+          fi
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: 🔐 Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
+          kubectl cluster-info
+
+      - name: 🧪 Submit Evaluation Job
+        run: |
+          DOCKER_REPO="${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend"
+          IMAGE_TAG="${{ inputs.image_tag }}"
           
-          docker run --rm \
-            -e DB_CONNECTION_STRING="${{ secrets.DEMO_APP_DB_URL }}" \
-            -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
-            -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
-            -e AWS_ENDPOINT_URL="${{ secrets.AWS_ENDPOINT_URL }}" \
-            -e MLFLOW_TRACKING_URI="https://mlflow.internal.opencloudhub.org" \
-            -e MLFLOW_TRACKING_INSECURE_TLS="true" \
-            -e LLM_BASE_URL="https://api.opencloudhub.org/models/qwen-0.5b/v1" \
-            -e DOCKER_IMAGE_TAG="${{ needs.resolve-image.outputs.resolved_tag }}" \
-            -e GIT_SHA="${{ needs.resolve-image.outputs.git_sha }}" \
-            ${{ needs.resolve-image.outputs.full_image }} \
-            python /workspace/project/src/evaluation/evaluate_promts.py \
-              --prompt-name "${{ github.event.inputs.prompt_name }}" \
-              --prompt-versions ${{ github.event.inputs.prompt_versions }} \
-              --data-version "${{ github.event.inputs.data_version }}" \
-              ${{ github.event.inputs.auto_promote == 'true' && '--auto-promote' || '' }} \
-            | tee /tmp/eval_output.txt
+          # Ensure -eval suffix
+          if [[ "$IMAGE_TAG" != *-eval ]]; then
+            IMAGE_TAG="${IMAGE_TAG}-eval"
+          fi
+          
+          FULL_IMAGE="${DOCKER_REPO}:${IMAGE_TAG}"
+          echo "📦 Using image: ${FULL_IMAGE}"
+
+          cat <<EOF | kubectl create -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            generateName: rag-eval-
+            namespace: mlops
+            labels:
+              pipeline: rag-evaluation
+          spec:
+            ttlSecondsAfterFinished: 600
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: eval
+                    image: ${FULL_IMAGE}
+                    command: ["python"]
+                    args:
+                      - "/workspace/project/src/evaluation/evaluate_promts.py"
+                      - "--prompt-name"
+                      - "${{ inputs.prompt_name }}"
+                      - "--prompt-versions"
+                      - "${{ inputs.prompt_versions }}"
+                      - "--data-version"
+                      - "${{ inputs.data_version }}"
+                      ${{ inputs.auto_promote == true && '- "--auto-promote"' || '' }}
+                    env:
+                      - name: DB_CONNECTION_STRING
+                        valueFrom:
+                          secretKeyRef:
+                            name: demo-app-db-user
+                            key: connection-string
+                      - name: AWS_ACCESS_KEY_ID
+                        valueFrom:
+                          secretKeyRef:
+                            name: minio-tenant-secret
+                            key: accesskey
+                      - name: AWS_SECRET_ACCESS_KEY
+                        valueFrom:
+                          secretKeyRef:
+                            name: minio-tenant-secret
+                            key: secretkey
+                      - name: AWS_ENDPOINT_URL
+                        value: "https://minio-api.internal.opencloudhub.org"
+                      - name: MLFLOW_TRACKING_URI
+                        value: "http://mlflow.mlops.svc.cluster.local:80"
+                      - name: MLFLOW_TRACKING_INSECURE_TLS
+                        value: "true"
+                      - name: LLM_BASE_URL
+                        value: "http://qwen-serve.models.svc.cluster.local:8000/v1"
+                      - name: DOCKER_IMAGE_TAG
+                        value: "${IMAGE_TAG}"
+                    resources:
+                      requests:
+                        cpu: "500m"
+                        memory: "1Gi"
+                      limits:
+                        cpu: "2"
+                        memory: "4Gi"
+          EOF
+
+      - name: ⏳ Wait for Evaluation Job
+        id: wait
+        run: |
+          sleep 3
+          JOB_NAME=$(kubectl get jobs -n mlops -l pipeline=rag-evaluation --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}')
+          echo "📋 Job: $JOB_NAME"
+          echo "job_name=$JOB_NAME" >> $GITHUB_OUTPUT
+
+          kubectl wait --for=condition=complete --timeout=30m job/$JOB_NAME -n mlops || {
+            echo "❌ Evaluation job failed"
+            kubectl logs -n mlops job/$JOB_NAME --tail=200
+            exit 1
+          }
+
+          echo "✅ Evaluation complete"
+
+      - name: 📊 Get Results
+        id: get-result
+        run: |
+          JOB_NAME="${{ steps.wait.outputs.job_name }}"
+          
+          # Get logs and extract best version
+          kubectl logs -n mlops job/$JOB_NAME > /tmp/eval_output.txt
+          cat /tmp/eval_output.txt
           
           BEST_VERSION=$(grep "Best prompt version:" /tmp/eval_output.txt | grep -oP 'v\K\d+' | head -1)
           
           if [ -z "$BEST_VERSION" ]; then
-            echo "❌ Could not extract best prompt version"
-            exit 1
+            echo "⚠️ Could not extract best prompt version from logs"
+            BEST_VERSION="unknown"
           fi
           
           echo "✅ Best prompt version: ${BEST_VERSION}"
           echo "best_prompt_version=${BEST_VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Upload evaluation logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: evaluation-logs-${{ github.run_number }}
-          path: /tmp/eval_output.txt
-          retention-days: 30
-
-  # Step 3: Trigger API reload with new prompt
   reload-api:
     name: 🔄 Reload Production API
-    needs: [resolve-image, evaluate]
-    if: github.event.inputs.auto_promote == 'true' && needs.evaluate.outputs.best_prompt_version != ''
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Trigger API reload
-        env:
-          API_URL: "https://demo-app.opencloudhub.org/api/admin/reload-prompt"
-          BEST_PROMPT_VERSION: ${{ needs.evaluate.outputs.best_prompt_version }}
-        run: |
-          echo "🔄 Reloading API with new prompt..."
-          echo "  API: ${API_URL}"
-          echo "  Prompt version: ${BEST_PROMPT_VERSION}"
-          
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "${API_URL}/admin/reload-prompt" \
-            -H "Content-Type: application/json" \
-            -d "{\"prompt_version\":${BEST_PROMPT_VERSION}}")
-          
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | head -n-1)
-          
-          echo "Response: ${BODY}"
-          echo "Status: ${HTTP_CODE}"
-          
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ API successfully reloaded with prompt v${BEST_PROMPT_VERSION}"
-          else
-            echo "⚠️ API reload returned status ${HTTP_CODE}"
-            echo "Response: ${BODY}"
-            exit 1
-          fi
+    needs: evaluate
+    if: inputs.auto_promote == true && needs.evaluate.outputs.best_prompt_version != '' && needs.evaluate.outputs.best_prompt_version != 'unknown'
+    runs-on: self-hosted-local
 
-  # Summary job
+    steps:
+      - name: 🔧 Install kubectl
+        run: |
+          if [ ! -f ~/.local/bin/kubectl ]; then
+            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+            chmod +x kubectl
+            mkdir -p ~/.local/bin
+            mv kubectl ~/.local/bin/
+          fi
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: 🔐 Configure kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > ~/.kube/config
+
+      - name: 🔄 Trigger API Reload
+        run: |
+          BEST_VERSION="${{ needs.evaluate.outputs.best_prompt_version }}"
+          
+          # Call the API reload endpoint via kubectl exec or port-forward
+          kubectl run reload-prompt --rm -i --restart=Never -n example-app \
+            --image=curlimages/curl:latest -- \
+            curl -s -X POST \
+              "http://demo-app-backend.example-app.svc.cluster.local:8000/admin/reload-prompt" \
+              -H "Content-Type: application/json" \
+              -d "{\"prompt_version\":${BEST_VERSION}}"
+          
+          echo "✅ API reload triggered for prompt v${BEST_VERSION}"
+
   summary:
     name: 📋 Summary
-    needs: [resolve-image, evaluate, reload-api]
+    needs: [evaluate, reload-api]
     if: always()
-    runs-on: ubuntu-latest
-    
+    runs-on: self-hosted-local
+
     steps:
       - name: Create Job Summary
         run: |
-          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          cat >> $GITHUB_STEP_SUMMARY << EOF
           ## 🎯 RAG Prompt Evaluation Results
           
           ### Configuration
           | Parameter | Value |
           |-----------|-------|
-          | **Prompt Name** | `${{ github.event.inputs.prompt_name }}` |
-          | **Versions Evaluated** | `${{ github.event.inputs.prompt_versions }}` |
-          | **Dataset Version** | `${{ github.event.inputs.data_version }}` |
-          | **Auto-Promote** | ${{ github.event.inputs.auto_promote }} |
-          
-          ### Docker Image
-          | Property | Value |
-          |----------|-------|
-          | **Input Tag** | `${{ github.event.inputs.image_tag }}` |
-          | **Resolved Tag** | `${{ needs.resolve-image.outputs.resolved_tag }}` |
-          | **Git SHA** | `${{ needs.resolve-image.outputs.git_sha }}` |
-          | **Full Image** | `${{ needs.resolve-image.outputs.full_image }}` |
+          | **Prompt Name** | \`${{ inputs.prompt_name }}\` |
+          | **Versions Evaluated** | \`${{ inputs.prompt_versions }}\` |
+          | **Dataset Version** | \`${{ inputs.data_version }}\` |
+          | **Auto-Promote** | ${{ inputs.auto_promote }} |
+          | **Image Tag** | \`${{ inputs.image_tag }}\` |
           
           ### Results
           | Metric | Value |
           |--------|-------|
-          | **Best Prompt Version** | `v${{ needs.evaluate.outputs.best_prompt_version }}` |
+          | **Best Prompt Version** | \`v${{ needs.evaluate.outputs.best_prompt_version }}\` |
           | **Evaluation Status** | ${{ needs.evaluate.result == 'success' && '✅ Success' || '❌ Failed' }} |
           | **API Reload Status** | ${{ needs.reload-api.result == 'success' && '✅ Success' || needs.reload-api.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} |
-          
-          ### Next Steps
-          ${{ github.event.inputs.auto_promote == 'true' && format('
-          ✅ The best prompt (v{0}) has been automatically promoted to `@production` and the API has been reloaded.
-          
-          **Your production API is now using:**
-          ```python
-          prompt_name: "readme-rag-prompt"
-          prompt_version: {0}
-          evaluated_with_image: "{1}"
-          evaluated_with_code: "{2}"
-          ```
-          ', needs.evaluate.outputs.best_prompt_version, needs.resolve-image.outputs.resolved_tag, needs.resolve-image.outputs.git_sha) || format('
-          ℹ️ Evaluation complete but auto-promotion was disabled.
-          
-          **To manually promote:**
-          ```python
-          import mlflow
-          mlflow.set_prompt_alias(
-              "readme-rag-prompt", 
-              alias="production", 
-              version={0}
-          )
-          ```
-          ', needs.evaluate.outputs.best_prompt_version) }}
-          
-          ---
-          
-          📊 [View detailed results in MLflow](${{ secrets.MLFLOW_TRACKING_URI }})  
-          📦 [Download evaluation logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
           EOF
