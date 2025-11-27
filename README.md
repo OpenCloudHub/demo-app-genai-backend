@@ -48,6 +48,7 @@ ______________________________________________________________________
 A demo Retrieval-Augmented Generation (RAG) system that answers questions about OpenCloudHub's MLOps platform by retrieving relevant information from README files across multiple repositories. The system demonstrates MLOps practices in the context of GenAI including prompt versioning, automated evaluation, and continuous deployment.
 
 **Key Capabilities:**
+
 - 🔍 Semantic search over OpenCloudHub repository READMEs
 - 💬 Context-aware question answering with streaming responses
 - 📊 Automated prompt evaluation and A/B testing
@@ -59,12 +60,14 @@ ______________________________________________________________________
 <h2 id="features">✨ Features</h2>
 
 ### RAG System
+
 - **Hybrid Search**: Combines semantic (pgvector) and keyword (PostgreSQL FTS) search with reciprocal rank fusion
 - **Streaming Responses**: Server-Sent Events (SSE) for real-time token streaming
 - **Session Management**: Track conversation history across multiple queries
 - **Production-Ready-Serving**: FastAPI with health checks, metrics, and graceful shutdown
 
 ### MLOps Pipeline
+
 - **Prompt Versioning**: MLflow Prompt Engineering with semantic versioning
 - **Automated Evaluation**: Compare prompt versions using custom scorers and LLM-as-judge
 - **Auto-Promotion**: Best-performing prompts automatically promoted to `@production`
@@ -73,6 +76,7 @@ ______________________________________________________________________
 - **GitOps Deployment**: ArgoCD with automatic image updates on promotion
 
 ### Observability
+
 - **Distributed Tracing**: MLflow tracing for end-to-end request tracking
 - **Experiment Tracking**: Compare prompt versions with standardized metrics
 - **Prompt Registry**: Track prompt lineage
@@ -82,6 +86,7 @@ ______________________________________________________________________
 <h2 id="architecture">🏗️ Architecture</h2>
 
 ### System Components
+
 <!-- TODO: adjust -->
 
 ```
@@ -126,9 +131,9 @@ ______________________________________________________________________
 ### Data Flow
 
 1. **Ingestion**: Repository READMEs → Chunking → Ray batch embeddings → PostgreSQL/pgvector
-2. **Query**: User question → Hybrid retrieval → Context + Prompt → LLM → Streamed answer
-3. **Evaluation**: Test prompts → Compute metrics → Promote best → Update deployment
-4. **Deployment**: GitHub Actions → Docker build → ArgoCD watches → Automatic rollout
+1. **Query**: User question → Hybrid retrieval → Context + Prompt → LLM → Streamed answer
+1. **Evaluation**: Test prompts → Compute metrics → Promote best → Update deployment
+1. **Deployment**: GitHub Actions → Docker build → ArgoCD watches → Automatic rollout
 
 ______________________________________________________________________
 
@@ -153,42 +158,46 @@ ______________________________________________________________________
    cd readme-rag-agent
    ```
 
-2. **Open in DevContainer**
+1. **Open in DevContainer**
 
    VSCode: `Ctrl+Shift+P` → `Dev Containers: Rebuild and Reopen in Container`
 
-3. **Configure environment**
+1. **Configure environment**
 
    ```bash
    cp .env.example .env
-   # Edit .env with your credentials and conection string
+   # Edit .env with your credentials and connection string
    ```
 
    Required variables:
+
    ```bash
    source .env
    ```
 
-4. **Install dependencies**
+1. **Install dependencies**
 
    ```bash
    uv sync
    source .venv/bin/activate
    ```
 
-5. **Run the API**
+1. **Run the API**
 
    ```bash
    fastapi dev src/api/main.py
    ```
 
    Test query:
+
    ```bash
    curl -X POST http://localhost:8000/query \
      -H "Content-Type: application/json" \
      -d '{"question": "What is GitOps in OpenCloudHub?"}'
    ```
+
    or with streaming with Server-Sent Events (SSE):
+
    ```bash
     curl -N -X POST http://localhost:8000/query \
       -H "Content-Type: application/json" \
@@ -225,6 +234,7 @@ mlflow.set_prompt("readme-rag-prompt", prompt_template)
 ```
 
 Run registration:
+
 ```bash
 python scripts/register_prompts.py
 ```
@@ -251,16 +261,18 @@ gh workflow run evaluate-and-promote-rag.yml \
 ```
 
 **What happens:**
+
 1. Loads evaluation dataset from DVC (versioned questions + expected answers)
-2. Runs each prompt version through the RAG pipeline
-3. Computes metrics:
+1. Runs each prompt version through the RAG pipeline
+1. Computes metrics:
    - **Concept Coverage**: Are key concepts mentioned?
    - **LLM-as-Judge**: Quality assessment from another LLM
-4. Calculates composite score (weighted average)
-5. Promotes best prompt to `@production` alias
-6. Logs all results to MLflow with comparison
+1. Calculates composite score (weighted average)
+1. Promotes best prompt to `@production` alias
+1. Logs all results to MLflow with comparison
 
 **Example output:**
+
 ```
 ============================================================
 COMPARISON
@@ -283,6 +295,7 @@ Promoting version 4 to @production...
 ### 3. Continuous Deployment
 
 **When a new prompt is promoted:**
+
 <!-- TODO: descivbe better, we build before in ci and reuse that container -->
 
 ```mermaid
@@ -318,7 +331,7 @@ jobs:
           python src/evaluation/evaluate_promts.py \
             --prompt-versions ${{ inputs.prompt_versions }} \
             --auto-promote
-      
+
       - name: Tag new version
         if: success()
         run: |
@@ -346,11 +359,12 @@ async def lifespan(app: FastAPI):
 ```
 
 **Runtime flow:**
+
 1. User sends question via `/query` endpoint
-2. API retrieves context using hybrid search (pgvector + FTS)
-3. Formats prompt with context and question
-4. Streams LLM response token-by-token
-5. Logs trace to MLflow for monitoring
+1. API retrieves context using hybrid search (pgvector + FTS)
+1. Formats prompt with context and question
+1. Streams LLM response token-by-token
+1. Logs trace to MLflow for monitoring
 
 ______________________________________________________________________
 
@@ -403,16 +417,19 @@ ______________________________________________________________________
 ### Testing Locally
 
 **Test the RAG chain:**
+
 ```bash
 python scripts/test_retrieval.py
 ```
 
 **Test streaming:**
+
 ```bash
 python tests/test_streaming.py
 ```
 
 **Test evaluation:**
+
 ```bash
 python src/evaluation/evaluate_promts.py \
     --prompt-versions 1 2 \
@@ -422,13 +439,15 @@ python src/evaluation/evaluate_promts.py \
 ### Adding Evaluation Data
 
 1. **Prepare questions CSV:**
-  Adjust the evaluation data found and tracked in the [Data Registry](https://github.com/OpenCloudHub/data-registry/tree/main/data/opencloudhub-readmes/rag-evaluation)
+   Adjust the evaluation data found and tracked in the [Data Registry](https://github.com/OpenCloudHub/data-registry/tree/main/data/opencloudhub-readmes/rag-evaluation)
+
    ```csv
    question,expected_answer,key_concepts,category
    "What is GitOps?","ArgoCD manages deployments...","[""GitOps"",""ArgoCD""]",deployment
    ```
 
-2. **Track with DVC:**
+1. **Track with DVC:**
+
    ```bash
    dvc add data/opencloudhub-readmes/rag-evaluation/questions.csv
    dvc push
@@ -438,7 +457,8 @@ python src/evaluation/evaluate_promts.py \
    git push origin main --tags
    ```
 
-3. **Use in evaluation:**
+1. **Use in evaluation:**
+
    ```bash
    python src/evaluation/evaluate_promts.py \
        --data-version opencloudhub-readmes-rag-evaluation-v1.1.0
@@ -485,7 +505,6 @@ on relevant files trigger a [Github Actions Workflow](.github/workflows/ci-docke
 
 **ArgoCD Image Updater** automatically detects new images and updates the deployment.
 
-
 ### Health Checks
 
 The API includes health endpoints:
@@ -494,11 +513,12 @@ The API includes health endpoints:
 # Liveness probe
 curl http://localhost:8000/health
 
-# Readiness probe  
+# Readiness probe
 curl http://localhost:8000/health
 ```
 
 **Response:**
+
 ```json
 {
   "status": "healthy",
@@ -516,13 +536,14 @@ Contributions are welcome! This project follows OpenCloudHub's contribution stan
 Please see our [Contributing Guidelines](https://github.com/opencloudhub/.github/blob/main/.github/CONTRIBUTING.md) and [Code of Conduct](https://github.com/opencloudhub/.github/blob/main/.github/CODE_OF_CONDUCT.md) for more details.
 
 **Development workflow:**
+
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes with tests
-4. Run quality checks (`ruff check . && ruff format .`)
-5. Commit (`git commit -m 'Add amazing feature'`)
-6. Push to branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
+1. Create a feature branch (`git checkout -b feature/amazing-feature`)
+1. Make your changes with tests
+1. Run quality checks (`ruff check . && ruff format .`)
+1. Commit (`git commit -m 'Add amazing feature'`)
+1. Push to branch (`git push origin feature/amazing-feature`)
+1. Open a Pull Request
 
 ______________________________________________________________________
 

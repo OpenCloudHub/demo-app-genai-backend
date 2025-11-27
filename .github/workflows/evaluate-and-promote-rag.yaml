@@ -3,7 +3,7 @@ name: Evaluate and Promote RAG Prompts
 on:
   workflow_dispatch:
     inputs:
-      prompt_name: 
+      prompt_name:
         description: 'Prompt name to use'
         required: true
         default: 'readme-rag-prompt'
@@ -52,12 +52,12 @@ jobs:
         run: |
           DOCKER_REPO="${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend"
           IMAGE_TAG="${{ inputs.image_tag }}"
-          
+
           # Ensure -eval suffix
           if [[ "$IMAGE_TAG" != *-eval ]]; then
             IMAGE_TAG="${IMAGE_TAG}-eval"
           fi
-          
+
           FULL_IMAGE="${DOCKER_REPO}:${IMAGE_TAG}"
           echo "📦 Using image: ${FULL_IMAGE}"
 
@@ -79,7 +79,7 @@ jobs:
                     image: ${FULL_IMAGE}
                     command: ["python"]
                     args:
-                      - "/workspace/project/src/evaluation/evaluate_promts.py"
+                      - "/workspace/project/src/prompts/evaluate_promts.py"
                       - "--prompt-name"
                       - "${{ inputs.prompt_name }}"
                       - "--prompt-versions"
@@ -122,7 +122,7 @@ jobs:
                         memory: "4Gi"
           EOF
 
-      - name: ⏳ Wait for Evaluation Job
+      - name: ⏳ Wait for Evaluation Job  # TODO: Waiting is just for demonstratino, can also just start the job and send status back from job later, this currently blocks runner
         id: wait
         run: |
           sleep 3
@@ -142,18 +142,18 @@ jobs:
         id: get-result
         run: |
           JOB_NAME="${{ steps.wait.outputs.job_name }}"
-          
+
           # Get logs and extract best version
           kubectl logs -n mlops job/$JOB_NAME > /tmp/eval_output.txt
           cat /tmp/eval_output.txt
-          
+
           BEST_VERSION=$(grep "Best prompt version:" /tmp/eval_output.txt | grep -oP 'v\K\d+' | head -1)
-          
+
           if [ -z "$BEST_VERSION" ]; then
             echo "⚠️ Could not extract best prompt version from logs"
             BEST_VERSION="unknown"
           fi
-          
+
           echo "✅ Best prompt version: ${BEST_VERSION}"
           echo "best_prompt_version=${BEST_VERSION}" >> $GITHUB_OUTPUT
 
@@ -182,7 +182,7 @@ jobs:
       - name: 🔄 Trigger API Reload
         run: |
           BEST_VERSION="${{ needs.evaluate.outputs.best_prompt_version }}"
-          
+
           # Call the API reload endpoint via kubectl exec or port-forward
           kubectl run reload-prompt --rm -i --restart=Never -n example-app \
             --image=curlimages/curl:latest -- \
@@ -190,7 +190,7 @@ jobs:
               "http://demo-app-backend.example-app.svc.cluster.local:8000/admin/reload-prompt" \
               -H "Content-Type: application/json" \
               -d "{\"prompt_version\":${BEST_VERSION}}"
-          
+
           echo "✅ API reload triggered for prompt v${BEST_VERSION}"
 
   summary:
@@ -204,7 +204,7 @@ jobs:
         run: |
           cat >> $GITHUB_STEP_SUMMARY << EOF
           ## 🎯 RAG Prompt Evaluation Results
-          
+
           ### Configuration
           | Parameter | Value |
           |-----------|-------|
@@ -213,7 +213,7 @@ jobs:
           | **Dataset Version** | \`${{ inputs.data_version }}\` |
           | **Auto-Promote** | ${{ inputs.auto_promote }} |
           | **Image Tag** | \`${{ inputs.image_tag }}\` |
-          
+
           ### Results
           | Metric | Value |
           |--------|-------|

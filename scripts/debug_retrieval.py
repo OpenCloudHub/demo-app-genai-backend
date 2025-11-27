@@ -5,11 +5,16 @@ import os
 import urllib3
 
 from src._config import CONFIG
+from src._logging import get_logger
 from src.rag.chain import RAGChain
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 os.environ["MLFLOW_TRACKING_URI"] = CONFIG.mlflow_tracking_uri
+
+logger = get_logger("debug_retrieval")
+
+logger.log_section("Debug Retrieval Performance", emoji="🔍")
 
 # Test questions
 test_questions = [
@@ -18,7 +23,7 @@ test_questions = [
     "What observability tools are used?",
 ]
 
-print("Initializing RAG chain...")
+logger.info("Initializing RAG chain...")
 rag = RAGChain(
     db_connection_string=CONFIG.connection_string,
     table_name=CONFIG.table_name,
@@ -30,20 +35,20 @@ rag = RAGChain(
     top_k=5,
 )
 
-print("\nTesting retrieval...")
+logger.info("\nTesting retrieval...")
 for question in test_questions:
-    print(f"\n{'=' * 60}")
-    print(f"Q: {question}")
-    print(f"{'=' * 60}")
+    logger.info(f"\n{'=' * 60}")
+    logger.info(f"Q: {question}")
+    logger.info(f"{'=' * 60}")
 
     # Get retrieved docs
     docs = rag.vectorstore.similarity_search(question, k=5)
 
-    print(f"\nRetrieved {len(docs)} documents:")
+    logger.info(f"\nRetrieved {len(docs)} documents:")
     for i, doc in enumerate(docs, 1):
-        print(f"\n{i}. [{doc.metadata['source_repo']}]")
-        print(f"   Preview: {doc.page_content[:150]}...")
+        logger.info(f"\n{i}. [{doc.metadata['source_repo']}]")
+        logger.info(f"   Preview: {doc.page_content[:150]}...")
 
     # Get answer
     answer = rag.invoke(question)
-    print(f"\nAnswer: {answer}")
+    logger.info(f"\nAnswer: {answer}")

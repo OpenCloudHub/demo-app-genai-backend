@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 class Config(BaseSettings):
     """Configuration for RAG API and evaluation"""
 
-    # API cofig
+    # API config
     prompt_version: int | None = None  # None = @production
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=8000)

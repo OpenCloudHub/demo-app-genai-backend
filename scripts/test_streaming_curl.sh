@@ -32,12 +32,12 @@ curl -N -X POST "$API_URL/query" \
       if [ -z "$line" ]; then
         continue
       fi
-      
+
       # Check if line starts with "data: "
       if [[ "$line" == data:* ]]; then
         # Extract content after "data: "
         content="${line#data: }"
-        
+
         # Check for [DONE] marker
         if [[ "$content" == "[DONE]" ]]; then
           echo -e "\n${CYAN}[Stream completed]${NC}"

@@ -1,5 +1,5 @@
 """
-MLflow evaluation with proper metrics extraction and LLM-as-judge.
+MLflow evaluation with LLM-as-judge.
 """
 
 import argparse
@@ -19,9 +19,12 @@ from mlflow.genai.datasets import create_dataset, search_datasets
 from mlflow.genai.scorers import scorer
 
 from src._config import CONFIG
+from src._logging import get_logger
 from src.rag.chain import RAGChain
 
 urllib3.disable_warnings()
+
+logger = get_logger("evaluate_prompts")
 
 load_dotenv()
 
@@ -33,7 +36,7 @@ def load_eval_dataset(data_version: str):
     If a dataset with the same DVC version exists, reuse it.
     Otherwise, create a new one.
     """
-    print(f"Loading eval dataset (DVC version: {data_version})...")
+    logger.info(f"Loading eval dataset (DVC version: {data_version})...")
 
     # Get or create experiment
     exp = mlflow.get_experiment_by_name("RAG Prompt Evaluation")
@@ -42,7 +45,7 @@ def load_eval_dataset(data_version: str):
     )
 
     # Search for existing dataset with same DVC version
-    print("  Checking for existing dataset...")
+    logger.info("  Checking for existing dataset...")
     existing_datasets = search_datasets(
         experiment_ids=[exp_id],
         filter_string=f"tags.dvc_version = '{data_version}'",
@@ -52,13 +55,13 @@ def load_eval_dataset(data_version: str):
 
     if existing_datasets:
         dataset = existing_datasets[0]
-        print(f"  ✓ Reusing existing dataset: {dataset.name}")
-        print(f"  ✓ Dataset ID: {dataset.dataset_id}")
-        print(f"  ✓ Records: {len(dataset.records)}\n")
+        logger.info(f"  ✓ Reusing existing dataset: {dataset.name}")
+        logger.info(f"  ✓ Dataset ID: {dataset.dataset_id}")
+        logger.info(f"  ✓ Records: {len(dataset.records)}\n")
         return dataset
 
     # No existing dataset found - create new one
-    print("  No existing dataset found, creating new one...")
+    logger.info("  No existing dataset found, creating new one...")
 
     # Load from DVC
     csv_content = dvc.api.read(
@@ -68,7 +71,7 @@ def load_eval_dataset(data_version: str):
         mode="r",
     )
     df = pd.read_csv(io.StringIO(csv_content))
-    print(f"  ✓ Loaded {len(df)} questions from DVC")
+    logger.success(f"  ✓ Loaded {len(df)} questions from DVC")
 
     # Create MLflow GenAI dataset with rich metadata
     dataset = create_dataset(
@@ -104,9 +107,9 @@ def load_eval_dataset(data_version: str):
 
     dataset.merge_records(records)
 
-    print(f"  ✓ Created new MLflow dataset: {dataset.name}")
-    print(f"  ✓ Dataset ID: {dataset.dataset_id}")
-    print(f"  ✓ Records: {len(records)}\n")
+    logger.success(f"  ✓ Created new MLflow dataset: {dataset.name}")
+    logger.info(f"  ✓ Dataset ID: {dataset.dataset_id}")
+    logger.info(f"  ✓ Records: {len(records)}\n")
 
     return dataset
 
@@ -131,16 +134,16 @@ def concept_coverage(outputs: str, expectations: dict) -> Feedback:
 
 def create_llm_judge(base_url: str, model: str):
     """
-    Create LLM-as-a-judge using your own served model!
+    Create LLM-as-a-judge using our own served model!
 
-    This uses your Qwen model as the judge instead of OpenAI.
+    This uses our Qwen model as the judge instead of OpenAI.
     """
 
     @scorer
     def answer_quality_judge(
         outputs: str, inputs: dict, expectations: dict
     ) -> Feedback:
-        """LLM judge using your own model"""
+        """LLM judge using our own model"""
         question = inputs.get("question", "")
         expected = expectations.get("answer", "")
 
@@ -160,7 +163,7 @@ Evaluate if the generated answer:
 Rate from 0.0 (completely wrong) to 1.0 (perfect).
 Return ONLY a JSON with: {{"score": <float>, "rationale": "<string>"}}"""
 
-        # Call your own model
+        # Call our own model
         http_client = httpx.Client(verify=False)
         from langchain_openai import ChatOpenAI
 
@@ -185,7 +188,7 @@ Return ONLY a JSON with: {{"score": <float>, "rationale": "<string>"}}"""
 
 def evaluate_prompt(prompt_version: int, name: str, dataset, data_version: str):
     """Evaluate one prompt version."""
-    print(f"\n{'=' * 60}\nEvaluating v{prompt_version}\n{'=' * 60}")
+    logger.info(f"\n{'=' * 60}\nEvaluating v{prompt_version}\n{'=' * 60}")
 
     rag = RAGChain(
         db_connection_string=CONFIG.connection_string,
@@ -222,19 +225,17 @@ def evaluate_prompt(prompt_version: int, name: str, dataset, data_version: str):
             }
         )
 
-        # Create scorers including your own LLM judge
-        scorers = [
-            concept_coverage,
-            create_llm_judge(CONFIG.llm_base_url, CONFIG.llm_model),
-        ]
-
+        # Use MLflow evaluate API
         results = evaluate(
             data=dataset,
             predict_fn=predict_fn,
-            scorers=scorers,
+            scorers=[
+                concept_coverage,
+                create_llm_judge(CONFIG.llm_base_url, CONFIG.llm_model),
+            ],
         )
 
-        # Extract metrics properly - they have /mean suffix
+        # Extract metrics - they have /mean suffix
         metrics_dict = {}
         for key, value in results.metrics.items():
             # Store with original key
@@ -252,10 +253,10 @@ def evaluate_prompt(prompt_version: int, name: str, dataset, data_version: str):
         }
         mlflow.log_dict(dataset_info, "dataset_info.json")
 
-        print("\n✓ Evaluation complete")
-        print("Metrics:")
+        logger.success("✅ Evaluation complete")
+        logger.info("Metrics:")
         for k, v in metrics_dict.items():
-            print(f"  {k}: {v:.3f}")
+            logger.info(f"  {k}: {v:.3f}")
 
         return {
             "run_id": run.info.run_id,
@@ -274,11 +275,11 @@ def run_evaluation(
     """Run evaluation with proper dataset tracking."""
     mlflow.set_experiment("RAG Prompt Evaluation")
 
-    print(f"\n{'=' * 60}\nRAG EVALUATION\n{'=' * 60}")
-    print(f"Prompt: {prompt_name}")
-    print(f"Versions: {prompt_versions}")
-    print(f"DVC data version: {data_version}")
-    print(f"{'=' * 60}\n")
+    logger.log_section("RAG EVALUATION SETUP", emoji="🧪")
+    logger.info(f"Prompt: {prompt_name}")
+    logger.info(f"Versions: {prompt_versions}")
+    logger.info(f"DVC data version: {data_version}")
+    logger.info(f"{'=' * 60}\n")
 
     # Load dataset and reuse
     dataset = load_eval_dataset(data_version)
@@ -290,9 +291,9 @@ def run_evaluation(
         results.append(result)
 
     # Compare - use exact metric keys with /mean suffix
-    print(f"\n{'=' * 60}")
-    print("COMPARISON")
-    print(f"{'=' * 60}")
+    logger.info(f"\n{'=' * 60}")
+    logger.info("COMPARISON")
+    logger.info(f"{'=' * 60}")
 
     comparison_data = []
     for r in results:
@@ -311,7 +312,7 @@ def run_evaluation(
     comparison_df["composite"] = (
         comparison_df["concept_coverage"] * 0.6 + comparison_df["llm_judge"] * 0.4
     )
-    print(comparison_df.to_string(index=False))
+    logger.info(comparison_df.to_string(index=False))
 
     best_idx = comparison_df["composite"].idxmax()
     best_version = int(comparison_df.loc[best_idx, "version"])
@@ -319,15 +320,17 @@ def run_evaluation(
     # Get the full result for complete info
     best_result = results[best_idx]
 
-    print(f"\n✓ Best version: {best_version}")
-    print(f"  Composite: {comparison_df.loc[best_idx, 'composite']:.3f}")
-    print(f"  Concept coverage: {comparison_df.loc[best_idx, 'concept_coverage']:.3f}")
-    print(f"  LLM judge: {comparison_df.loc[best_idx, 'llm_judge']:.3f}")
+    logger.info(f"\n✓ Best version: {best_version}")
+    logger.info(f"  Composite: {comparison_df.loc[best_idx, 'composite']:.3f}")
+    logger.info(
+        f"  Concept coverage: {comparison_df.loc[best_idx, 'concept_coverage']:.3f}"
+    )
+    logger.info(f"  LLM judge: {comparison_df.loc[best_idx, 'llm_judge']:.3f}")
 
     if auto_promote:
-        print(f"\nPromoting version {best_version} to @champion...")
+        logger.info(f"\nPromoting version {best_version} to @champion...")
         mlflow.set_prompt_alias(prompt_name, alias="champion", version=best_version)
-        print("✓ Promoted!")
+        logger.info("✓ Promoted!")
 
     return {
         "best_prompt_version": best_version,
@@ -355,19 +358,21 @@ if __name__ == "__main__":
         auto_promote=args.auto_promote,
     )
 
-    print(f"\n{'=' * 60}")
-    print("✅ EVALUATION COMPLETE")
-    print(f"{'=' * 60}")
-    print(f"Best prompt version: v{result['best_prompt_version']}")
-    print(f"Run ID: {result['best_run_id']}")
-    print(f"Dataset ID: {result['dataset_id']}")
-    print("\nMetrics:")
-    print(
+    logger.info(f"\n{'=' * 60}")
+    logger.success("✅ EVALUATION COMPLETE")
+    logger.info(f"{'=' * 60}")
+    logger.info(f"Best prompt version: v{result['best_prompt_version']}")
+    logger.info(f"Run ID: {result['best_run_id']}")
+    logger.info(f"Dataset ID: {result['dataset_id']}")
+    logger.info("\nMetrics:")
+    logger.info(
         f"  Concept coverage: {result['metrics'].get('concept_coverage/mean', 0):.3f}"
     )
-    print(f"  LLM judge: {result['metrics'].get('answer_quality_judge/mean', 0):.3f}")
-    print("\nLoad in production with:")
-    print(f"  prompts:/{args.prompt_name}@champion")
-    print("Or specific version with:")
-    print(f"  prompts:/{args.prompt_name}@{result['best_prompt_version']}")
-    print(f"{'=' * 60}\n")
+    logger.info(
+        f"  LLM judge: {result['metrics'].get('answer_quality_judge/mean', 0):.3f}"
+    )
+    logger.info("\nLoad in production with:")
+    logger.info(f"  prompts:/{args.prompt_name}@champion")
+    logger.info("Or specific version with:")
+    logger.info(f"  prompts:/{args.prompt_name}@{result['best_prompt_version']}")
+    logger.info(f"{'=' * 60}\n")

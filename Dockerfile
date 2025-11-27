@@ -46,8 +46,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-install-project
 
 #==============================================================================#
-# Stage: API SERVING (production API image)
-FROM python:3.12-slim-bookworm AS serving
+# Stage: API SERVING and EVALUATION (production API image)
+FROM python:3.12-slim-bookworm AS prod
 
 WORKDIR /workspace/project
 
@@ -90,25 +90,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 EXPOSE 8000
 
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-#==============================================================================#
-# Stage: EVALUATION (for running evaluations in CI or Cluster)
-FROM uv_base AS evaluation
-
-WORKDIR /workspace/project
-
-# Install git (needed for DVC)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends git \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Copy entire project for evaluation
-COPY --chown=root:root . .
-
-ENV VIRTUAL_ENV="/workspace/project/.venv" \
-    PATH="/workspace/project/.venv/bin:$PATH" \
-    PYTHONPATH="/workspace/project" \
-    ENVIRONMENT=evaluation
-
-# Default command for evaluation
-CMD ["python", "src/evaluation/evaluate_promts.py"]

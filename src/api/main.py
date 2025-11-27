@@ -99,78 +99,81 @@ async def lifespan(app: FastAPI):
     app.state.chain = None
 
 
+description = """
+**Demo RAG System for OpenCloudHub MLOps Platform Documentation**
+
+This demo Retrieval-Augmented Generation (RAG) system demonstrates modern MLOps
+practices applied to Generative AI workloads, showcasing key differences from traditional
+ML/DL workflows.
+
+## 🔍 How it Works
+
+1. **Semantic Search**: User questions are embedded and matched against a vector database
+    (PgVector) containing OpenCloudHub repository documentation
+2. **Context Retrieval**: Top-K most relevant documentation chunks are retrieved
+3. **LLM Generation**: Retrieved context + user question are sent to our self-hosted
+    Qwen 2.5 (0.5B) model for answer generation
+4. **Streaming Response**: Answers stream back token-by-token for responsive UX
+
+## 🏗️ Infrastructure
+
+- **Self-Hosted LLM**: Qwen 2.5-0.5B-Instruct served via Ray Serve on our Kubernetes cluster
+- **Vector Store**: PostgreSQL with pgvector extension for semantic search
+- **Embeddings**: Sentence-Transformers (all-MiniLM-L6-v2) for document/query encoding
+- **Orchestration**: LangChain for RAG pipeline composition
+
+## 🔄 GenAI MLOps Workflow
+
+Unlike traditional ML/DL where you version **models**, in GenAI you need to take care of versioning **prompts** as a new artifact type. This system showcases a full MLOps workflow around prompt versioning, evaluation, and deployment.
+
+### Our MLOps Stack for GenAI
+
+1. **Prompt Registry** (MLflow):
+    - Store and version prompt templates like model artifacts
+    - Track prompt lineage and metadata
+    - Promote best-performing prompts to `@champion` alias
+
+2. **Automated Evaluation**:
+    - DVC for versioned evaluation datasets
+    - MLflow Evaluate with custom LLM-as-judge metrics
+    - A/B test multiple prompt versions automatically
+    - GitHub Actions CI/CD for evaluation on every prompt change
+
+3. **Tracing & Observability**:
+    - Log every LLM call with input/output/latency
+    - Track retrieval quality and context relevance
+    - Monitor token usage and costs
+    - Trace full RAG pipeline execution
+
+4. **GitOps Deployment**:
+    - Prompt versions stored in MLflow registry
+    - ArgoCD + Image Updater for continuous deployment
+    - Dynamic prompt reloading via `/admin/reload-prompt` endpoint
+    - No service restart needed to test new prompts
+
+## 🎯 Key GenAI Aspects Demonstrated
+
+- **Prompt Versioning**: Treat prompts as first-class artifacts with semantic versioning
+- **Evaluation-Driven Development**: Automated prompt testing on curated question sets
+- **Dynamic Prompt Updates**: Reload prompts in production without container restarts
+- **LLM Call Tracing**: Full observability into every generation request
+- **Self-Hosted Models**: Complete control over LLM infrastructure and data privacy
+- **Streaming Responses**: Real-time token generation for better UX
+
+## 📊 Endpoints
+
+- `POST /query` - Ask questions with optional streaming
+- `GET /prompt` - View current prompt template and version
+- `POST /admin/reload-prompt` - Hot-reload new prompt versions
+- `GET /health` - Service health and chain status
+
+Built with ❤️ by OpenCloudHub to showcase MLOps for GenAI workloads.
+"""
+
+
 app = FastAPI(
     title="🤖 OpenCloudHub RAG API",
-    description="""
-    **Demo RAG System for OpenCloudHub MLOps Platform Documentation**
-    
-    This demo Retrieval-Augmented Generation (RAG) system demonstrates modern MLOps 
-    practices applied to Generative AI workloads, showcasing key differences from traditional 
-    ML/DL workflows.
-    
-    ## 🔍 How it Works
-    
-    1. **Semantic Search**: User questions are embedded and matched against a vector database 
-       (PgVector) containing OpenCloudHub repository documentation
-    2. **Context Retrieval**: Top-K most relevant documentation chunks are retrieved
-    3. **LLM Generation**: Retrieved context + user question are sent to our self-hosted 
-       Qwen 2.5 (0.5B) model for answer generation
-    4. **Streaming Response**: Answers stream back token-by-token for responsive UX
-    
-    ## 🏗️ Infrastructure
-    
-    - **Self-Hosted LLM**: Qwen 2.5-0.5B-Instruct served via Ray Serve on our Kubernetes cluster
-    - **Vector Store**: PostgreSQL with pgvector extension for semantic search
-    - **Embeddings**: Sentence-Transformers (all-MiniLM-L6-v2) for document/query encoding
-    - **Orchestration**: LangChain for RAG pipeline composition
-    
-    ## 🔄 GenAI MLOps Workflow
-    
-    Unlike traditional ML/DL where you version **models**, in GenAI you need to take care of versioning **prompts** as a new artifact type. This system showcases a full MLOps workflow around prompt versioning, evaluation, and deployment.
-    
-    ### Our MLOps Stack for GenAI
-    
-    1. **Prompt Registry** (MLflow): 
-       - Store and version prompt templates like model artifacts
-       - Track prompt lineage and metadata
-       - Promote best-performing prompts to `@champion` alias
-    
-    2. **Automated Evaluation**:
-       - DVC for versioned evaluation datasets
-       - MLflow Evaluate with custom LLM-as-judge metrics
-       - A/B test multiple prompt versions automatically
-       - GitHub Actions CI/CD for evaluation on every prompt change
-    
-    3. **Tracing & Observability**:
-       - Log every LLM call with input/output/latency
-       - Track retrieval quality and context relevance
-       - Monitor token usage and costs
-       - Trace full RAG pipeline execution
-    
-    4. **GitOps Deployment**:
-       - Prompt versions stored in MLflow registry
-       - ArgoCD + Image Updater for continuous deployment
-       - Dynamic prompt reloading via `/admin/reload-prompt` endpoint
-       - No service restart needed to test new prompts
-    
-    ## 🎯 Key GenAI Aspects Demonstrated
-    
-    - **Prompt Versioning**: Treat prompts as first-class artifacts with semantic versioning
-    - **Evaluation-Driven Development**: Automated prompt testing on curated question sets
-    - **Dynamic Prompt Updates**: Reload prompts in production without container restarts
-    - **LLM Call Tracing**: Full observability into every generation request
-    - **Self-Hosted Models**: Complete control over LLM infrastructure and data privacy
-    - **Streaming Responses**: Real-time token generation for better UX
-    
-    ## 📊 Endpoints
-    
-    - `POST /query` - Ask questions with optional streaming
-    - `GET /prompt` - View current prompt template and version
-    - `POST /admin/reload-prompt` - Hot-reload new prompt versions
-    - `GET /health` - Service health and chain status
-    
-    Built with ❤️ by OpenCloudHub to showcase MLOps for GenAI workloads.
-    """,
+    description=description,
     version="1.0.0",
     lifespan=lifespan,
     root_path="/api",

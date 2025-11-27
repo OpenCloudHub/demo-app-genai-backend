@@ -2,7 +2,6 @@
 LangChain-based RAG chain with proper schema mapping and tracing.
 """
 
-from logging import getLogger
 from typing import Optional
 
 import httpx
@@ -19,7 +18,9 @@ from langchain_postgres.v2.hybrid_search_config import (
 )
 from sentence_transformers import SentenceTransformer
 
-logger = getLogger(__name__)
+from src._logging import get_logger
+
+logger = get_logger(__name__)
 
 # Enable LangChain autologging
 mlflow.langchain.autolog()
@@ -68,7 +69,16 @@ class RAGChain:
         self.embedder = SentenceTransformerEmbeddings(embedding_model)
 
         # Connect to existing table with LangChain schema
-        pg_engine = PGEngine.from_connection_string(url=db_connection_string)
+        try:
+            pg_engine = PGEngine.from_connection_string(
+                url=db_connection_string,
+                # Test connection
+                connect_args={"connect_timeout": 10},
+            )
+            logger.info("✓ Connected to Postgres vectorstore")
+        except Exception as e:
+            logger.error(f"Failed to connect to Postgres: {e}")
+            raise
 
         # Initialize vectorstore with hybrid search config
 
@@ -108,7 +118,7 @@ class RAGChain:
             prompt_uri = f"prompts:/{prompt_name}/{version}"
 
             mlflow_prompt = mlflow.genai.load_prompt(prompt_uri)
-            print(f"✓ Loaded prompt: {prompt_uri}")
+            logger.info(f"✓ Loaded prompt: {prompt_uri}")
 
             return ChatPromptTemplate.from_messages(
                 [
@@ -161,7 +171,7 @@ class RAGChain:
     def stream(self, question: str):
         """Stream the response token by token."""
         try:
-            logger.info(f"Starting stream for: {question[:50]}...")
+            logger.debug(f"Starting stream for: {question[:50]}...")
             chunk_count = 0
 
             for chunk in self.chain.stream(
