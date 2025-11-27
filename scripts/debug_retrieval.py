@@ -5,7 +5,7 @@ import os
 import urllib3
 
 from src._config import CONFIG
-from src._logging import get_logger
+from src._logging import get_logger, log_section
 from src.rag.chain import RAGChain
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -14,7 +14,7 @@ os.environ["MLFLOW_TRACKING_URI"] = CONFIG.mlflow_tracking_uri
 
 logger = get_logger("debug_retrieval")
 
-logger.log_section("Debug Retrieval Performance", emoji="🔍")
+log_section("Debug Retrieval Performance", emoji="🔍")
 
 # Test questions
 test_questions = [
@@ -25,12 +25,12 @@ test_questions = [
 
 logger.info("Initializing RAG chain...")
 rag = RAGChain(
-    db_connection_string=CONFIG.connection_string,
-    table_name=CONFIG.table_name,
+    db_connection_string=CONFIG.connection_string.db_connection_string,
+    table_name=CONFIG.db_table_name,
     embedding_model=CONFIG.embedding_model,
     llm_base_url=CONFIG.llm_base_url,
     llm_model=CONFIG.llm_model,
-    prompt_name="readme-rag-prompt",
+    prompt_name=CONFIG.prompt_name,
     prompt_version=1,
     top_k=5,
 )

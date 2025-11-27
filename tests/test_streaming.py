@@ -18,8 +18,8 @@ os.environ["MLFLOW_TRACKING_URI"] = CONFIG.mlflow_tracking_uri
 def rag_chain():
     """Initialize RAG chain for tests."""
     return RAGChain(
-        db_connection_string=CONFIG.connection_string,
-        table_name=CONFIG.table_name,
+        db_connection_string=CONFIG.connection_string.db_connection_string,
+        table_name=CONFIG.db_table_name,
         embedding_model=CONFIG.embedding_model,
         llm_base_url=CONFIG.llm_base_url,
         llm_model=CONFIG.llm_model,

@@ -172,14 +172,13 @@ ______________________________________________________________________
    Required variables:
 
    ```bash
-   source .env
+   set -a && source .env && set +a
    ```
 
 1. **Install dependencies**
 
    ```bash
    uv sync
-   source .venv/bin/activate
    ```
 
 1. **Run the API**

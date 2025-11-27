@@ -19,7 +19,7 @@ from mlflow.genai.datasets import create_dataset, search_datasets
 from mlflow.genai.scorers import scorer
 
 from src._config import CONFIG
-from src._logging import get_logger
+from src._logging import get_logger, log_section
 from src.rag.chain import RAGChain
 
 urllib3.disable_warnings()
@@ -29,14 +29,14 @@ logger = get_logger("evaluate_prompts")
 load_dotenv()
 
 
-def load_eval_dataset(data_version: str):
+def load_eval_dataset(dvc_data_version: str):
     """
     Load dataset from DVC and create/reuse MLflow dataset.
 
     If a dataset with the same DVC version exists, reuse it.
     Otherwise, create a new one.
     """
-    logger.info(f"Loading eval dataset (DVC version: {data_version})...")
+    logger.info(f"Loading eval dataset (DVC version: {dvc_data_version})...")
 
     # Get or create experiment
     exp = mlflow.get_experiment_by_name("RAG Prompt Evaluation")
@@ -48,7 +48,7 @@ def load_eval_dataset(data_version: str):
     logger.info("  Checking for existing dataset...")
     existing_datasets = search_datasets(
         experiment_ids=[exp_id],
-        filter_string=f"tags.dvc_version = '{data_version}'",
+        filter_string=f"tags.dvc_data_version = '{dvc_data_version}'",
         max_results=1,
         order_by=["created_time DESC"],  # Get most recent if multiple
     )
@@ -67,7 +67,7 @@ def load_eval_dataset(data_version: str):
     csv_content = dvc.api.read(
         path=CONFIG.eval_data_path,
         repo=CONFIG.dvc_repo,
-        rev=data_version,
+        rev=dvc_data_version,
         mode="r",
     )
     df = pd.read_csv(io.StringIO(csv_content))
@@ -75,13 +75,13 @@ def load_eval_dataset(data_version: str):
 
     # Create MLflow GenAI dataset with rich metadata
     dataset = create_dataset(
-        name=f"readme-rag-eval-{data_version}",
+        name=f"readme-rag-eval-{dvc_data_version}",
         experiment_id=exp_id,
         tags={
-            "dvc_version": data_version,
+            "dvc_data_version": dvc_data_version,
             "dvc_repo": CONFIG.dvc_repo,
             "source": "dvc",
-            "table_name": CONFIG.table_name,
+            "table_name": CONFIG.db_table_name,
             "embedding_model": CONFIG.embedding_model,
             "num_questions": str(len(df)),
             "created_at": pd.Timestamp.now().isoformat(),
@@ -100,7 +100,7 @@ def load_eval_dataset(data_version: str):
                 },
                 "metadata": {
                     "category": row.get("category", "general"),
-                    "dvc_version": data_version,
+                    "dvc_data_version": dvc_data_version,
                 },
             }
         )
@@ -186,41 +186,42 @@ Return ONLY a JSON with: {{"score": <float>, "rationale": "<string>"}}"""
     return answer_quality_judge
 
 
-def evaluate_prompt(prompt_version: int, name: str, dataset, data_version: str):
+def evaluate_prompt(prompt_version: int, name: str, dataset, dvc_data_version: str):
     """Evaluate one prompt version."""
     logger.info(f"\n{'=' * 60}\nEvaluating v{prompt_version}\n{'=' * 60}")
 
     rag = RAGChain(
-        db_connection_string=CONFIG.connection_string,
-        table_name=CONFIG.table_name,
+        db_connection_string=CONFIG.db_connection_string,
+        table_name=CONFIG.db_table_name,
         embedding_model=CONFIG.embedding_model,
         llm_base_url=CONFIG.llm_base_url,
         llm_model=CONFIG.llm_model,
+        api_key=CONFIG.api_key,
         prompt_name=name,
         prompt_version=prompt_version,
-        top_k=CONFIG.top_k,
+        top_k=CONFIG.db_top_k,
     )
 
     def predict_fn(question: str) -> str:
         return rag.invoke(question)
 
     with mlflow.start_run(
-        run_name=f"{name}-prompt-v{prompt_version}-data-v{data_version}"
+        run_name=f"{name}-prompt-v{prompt_version}-data-v{dvc_data_version}"
     ) as run:
         # Log comprehensive parameters
         mlflow.log_param("prompt_name", name)
         mlflow.log_param("prompt_version", prompt_version)
         mlflow.log_param("embedding_model", CONFIG.embedding_model)
         mlflow.log_param("llm_model", CONFIG.llm_model)
-        mlflow.log_param("table_name", CONFIG.table_name)
-        mlflow.log_param("top_k", CONFIG.top_k)
-        mlflow.log_param("eval_data_version", data_version)
+        mlflow.log_param("table_name", CONFIG.db_table_name)
+        mlflow.log_param("top_k", CONFIG.db_top_k)
+        mlflow.log_param("eval_data_version", dvc_data_version)
         mlflow.log_param("dvc_repo", CONFIG.dvc_repo)
         mlflow.update_current_trace(
             tags={
                 "prompt_version": str(prompt_version),
                 "prompt_name": name,
-                "data_version": data_version,
+                "dvc_data_version": dvc_data_version,
                 "docker_image_tag": os.getenv("DOCKER_IMAGE_TAG", "local"),
             }
         )
@@ -248,7 +249,7 @@ def evaluate_prompt(prompt_version: int, name: str, dataset, data_version: str):
         dataset_info = {
             "dataset_id": dataset.dataset_id,
             "dataset_name": dataset.name,
-            "dvc_version": data_version,
+            "dvc_data_version": dvc_data_version,
             "num_questions": len(dataset.records),
         }
         mlflow.log_dict(dataset_info, "dataset_info.json")
@@ -269,25 +270,25 @@ def evaluate_prompt(prompt_version: int, name: str, dataset, data_version: str):
 def run_evaluation(
     prompt_name: str,
     prompt_versions: list[int],
-    data_version: str,
+    dvc_data_version: str,
     auto_promote: bool = True,
 ):
     """Run evaluation with proper dataset tracking."""
     mlflow.set_experiment("RAG Prompt Evaluation")
 
-    logger.log_section("RAG EVALUATION SETUP", emoji="🧪")
+    log_section("RAG EVALUATION SETUP", emoji="🧪")
     logger.info(f"Prompt: {prompt_name}")
     logger.info(f"Versions: {prompt_versions}")
-    logger.info(f"DVC data version: {data_version}")
+    logger.info(f"DVC data version: {dvc_data_version}")
     logger.info(f"{'=' * 60}\n")
 
     # Load dataset and reuse
-    dataset = load_eval_dataset(data_version)
+    dataset = load_eval_dataset(dvc_data_version)
 
     # Evaluate all prompt_versions
     results = []
     for version in prompt_versions:
-        result = evaluate_prompt(version, prompt_name, dataset, data_version)
+        result = evaluate_prompt(version, prompt_name, dataset, dvc_data_version)
         results.append(result)
 
     # Compare - use exact metric keys with /mean suffix
@@ -345,7 +346,7 @@ if __name__ == "__main__":
     parser.add_argument("--prompt-name", default="readme-rag-prompt")
     parser.add_argument("--prompt-versions", type=int, nargs="+", default=[1, 2, 3])
     parser.add_argument(
-        "--data-version", default="opencloudhub-readmes-rag-evaluation-v1.0.0"
+        "--dvc-data-version", default="opencloudhub-readmes-rag-evaluation-v1.0.0"
     )
     parser.add_argument("--auto-promote", action="store_true", default=True)
 
@@ -354,7 +355,7 @@ if __name__ == "__main__":
     result = run_evaluation(
         prompt_name=args.prompt_name,
         prompt_versions=args.prompt_versions,
-        data_version=args.data_version,
+        dvc_data_version=args.dvc_data_version,
         auto_promote=args.auto_promote,
     )
 

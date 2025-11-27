@@ -1,5 +1,5 @@
 """
-LangChain-based RAG chain with proper schema mapping and tracing.
+LangChain-based RAG chain with MLflowtracing.
 """
 
 from typing import Optional
@@ -51,6 +51,7 @@ class RAGChain:
         embedding_model: str,
         llm_base_url: str,
         llm_model: str,
+        api_key: str,
         prompt_name: str,
         prompt_version: Optional[int] = None,  # None loads @production
         top_k: int = 5,
@@ -60,7 +61,7 @@ class RAGChain:
         self.llm = ChatOpenAI(
             model=llm_model,
             base_url=llm_base_url,
-            api_key="dummy",
+            api_key=api_key,
             http_client=http_client,
             temperature=0.7,
         )

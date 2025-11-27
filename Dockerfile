@@ -39,7 +39,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Stage: Development (for devcontainer)
 FROM uv_base AS dev
 
-ENV ENVIRONMENT=development
+ENV VIRTUAL_ENV="/workspace/project/.venv" \
+    PATH="/workspace/project/.venv/bin:$PATH" \
+    PYTHONPATH="/workspace/project" \
+    ENVIRONMENT=development
 
 # Install dev dependencies
 RUN --mount=type=cache,target=/root/.cache/uv \

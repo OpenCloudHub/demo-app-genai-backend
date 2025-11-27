@@ -33,8 +33,9 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting OpenCloudHub RAG API")
     app.state.status = APIStatus.LOADING
     app.state.chain = None
-    app.state.prompt_name = "readme-rag-prompt"
-    app.state.prompt_version = CONFIG.prompt_version
+    app.state.prompt_name = CONFIG.prompt_name
+    app.state.top_k = CONFIG.db_top_k
+    app.state.prompt_version = None
     app.state.start_time = datetime.now(timezone.utc)
 
     try:
@@ -63,13 +64,14 @@ async def lifespan(app: FastAPI):
         try:
             app.state.chain = RAGChain(
                 db_connection_string=CONFIG.db_connection_string,
-                table_name=CONFIG.table_name,
+                table_name=CONFIG.db_table_name,
                 embedding_model=CONFIG.embedding_model,
                 llm_base_url=CONFIG.llm_base_url,
                 llm_model=CONFIG.llm_model,
+                api_key=CONFIG.api_key,
                 prompt_name=app.state.prompt_name,
                 prompt_version=app.state.prompt_version,
-                top_k=CONFIG.top_k,
+                top_k=app.state.top_k,
             )
 
             # Verify chain is properly initialized
@@ -416,13 +418,14 @@ async def reload_prompt(request: ReloadPromptRequest):
         # Recreate the chain with new prompt version
         app.state.chain = RAGChain(
             db_connection_string=CONFIG.db_connection_string,
-            table_name=CONFIG.table_name,
+            table_name=CONFIG.db_table_name,
             embedding_model=CONFIG.embedding_model,
             llm_base_url=CONFIG.llm_base_url,
             llm_model=CONFIG.llm_model,
+            api_key=CONFIG.api_key,
             prompt_name=app.state.prompt_name,
             prompt_version=request.prompt_version,
-            top_k=CONFIG.top_k,
+            top_k=request.top_k,
         )
 
         app.state.prompt_version = request.prompt_version
@@ -433,6 +436,7 @@ async def reload_prompt(request: ReloadPromptRequest):
             status="reloaded",
             prompt_name=app.state.prompt_name,
             prompt_version=request.prompt_version,
+            top_k=request.top_k,
             timestamp=datetime.now(timezone.utc),
         )
 

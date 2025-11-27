@@ -1,11 +1,11 @@
-"""Register system prompts for RAG agent."""
+"""Register example system prompts for RAG agent."""
 
 import os
 
 import mlflow
 import urllib3
 
-from src._logging import get_logger
+from src._logging import get_logger, log_section
 
 urllib3.disable_warnings()
 
@@ -58,7 +58,7 @@ Question: {question}
 
 Answer:"""
 
-logger.log_section(
+log_section(
     f"Registering RAG Prompts to MLflow at {mlflow.get_tracking_uri()}", emoji="📝"
 )
 mlflow.genai.register_prompt("readme-rag-prompt", PROMPT_V1, commit_message="V1")
@@ -67,4 +67,4 @@ mlflow.genai.register_prompt("readme-rag-prompt", PROMPT_V2, commit_message="V2"
 logger.info("✓ V2")
 mlflow.genai.register_prompt("readme-rag-prompt", PROMPT_V3, commit_message="V3")
 logger.info("✓ V3")
-logger.ssuccess("\n✅ Done!")
+logger.success("\n✅ Done!")
