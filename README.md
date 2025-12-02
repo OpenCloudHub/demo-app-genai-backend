@@ -183,8 +183,17 @@ ______________________________________________________________________
 
 1. **Run the API**
 
+  Set up environment
+  ```bash 
+   # If testing with minikube
+   set -a && source .env.minikube && set +a
+
+   # If testing with docker -compose
+   set -a && source .env.docker && set +a
+   ```
+  Run the app in dev mode.
    ```bash
-   fastapi dev src/api/main.py
+   fastapi dev src/main.py
    ```
 
    Test query:
