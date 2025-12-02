@@ -38,8 +38,8 @@ class Config(BaseSettings):
 
     # Tracing
     otel_enabled: bool = Field(default=True)
-    otel_service_name: str = Field(default="rag-backend")
-    otel_exporter_endpoint: str = Field(default="localhost:4317")
+    otel_service_name: str = Field(default="demo-app-genai-backend")
+    otel_exporter_otlp_endpoint: str = Field(default="localhost:4317")
 
     @computed_field
     @property

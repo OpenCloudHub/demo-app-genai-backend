@@ -120,7 +120,7 @@ app = FastAPI(
 setup_tracing(
     app,
     service_name=CONFIG.otel_service_name,
-    endpoint=CONFIG.otel_exporter_endpoint,
+    endpoint=CONFIG.otel_exporter_otlp_endpoint,
     enabled=CONFIG.otel_enabled,
 )
 
