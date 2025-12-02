@@ -85,7 +85,7 @@ async def lifespan(app: FastAPI):
 
 
 description = """
-**Demo RAG System for OpenCloudHub MLOps Platform Documentation**
+**Demo RAG System for OpenCloudHub MLOps Platform Documentation 🚀**
 
 This demo Retrieval-Augmented Generation (RAG) system demonstrates modern MLOps
 practices applied to Generative AI workloads.
