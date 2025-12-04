@@ -328,7 +328,7 @@ def run_evaluation(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--prompt-name", default="readme-rag-prompt")
-    parser.add_argument("--prompt-versions", type=int, nargs="+", default=[1, 2, 3])
+    parser.add_argument("--prompt-versions", type=str, default="1,2,3")  # String now
     parser.add_argument(
         "--dvc-data-version", default="opencloudhub-readmes-rag-evaluation-v1.0.0"
     )
@@ -336,9 +336,12 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # Parse comma-separated versions to list of ints
+    prompt_versions = [int(v.strip()) for v in args.prompt_versions.split(",")]
+
     result = run_evaluation(
         prompt_name=args.prompt_name,
-        prompt_versions=args.prompt_versions,
+        prompt_versions=prompt_versions,
         dvc_data_version=args.dvc_data_version,
         auto_promote=args.auto_promote,
     )
