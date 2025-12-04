@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 
 import mlflow
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.api.routes import admin, debug, health, query, session
@@ -127,6 +128,15 @@ setup_otlp(
 
 # Add Prometheus middleware
 app.add_middleware(PrometheusMiddleware, app_name=CONFIG.otel_service_name)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[  # TODO: adjust if needed
+        "http://localhost:3000",
+        "https://demo-app.opencloudhub.org",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/metrics")
