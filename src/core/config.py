@@ -65,14 +65,9 @@ class Config(BaseSettings):
     # ===================
     # Tracing Configuration
     # ===================
-    # OpenTelemetry settings (using standard OTEL env var names)
-    otel_enabled: bool = Field(default=True)
+    # OpenTelemetry settings
     otel_service_name: str = Field(default="demo-app-genai-backend")
-    # Standard OTEL env var: OTEL_EXPORTER_OTLP_ENDPOINT
-    otel_exporter_otlp_endpoint: str = Field(default="localhost:4317")
-
-    # MLflow tracing (separate from OTEL - traces LangChain to MLflow UI)
-    mlflow_tracing_enabled: bool = Field(default=True)
+    otel_exporter_otlp_endpoint: str = Field(default="")  # Empty default
 
     @computed_field
     @property
