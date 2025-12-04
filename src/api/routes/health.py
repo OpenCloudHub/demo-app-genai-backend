@@ -1,4 +1,25 @@
-"""Health and root endpoints."""
+# ==============================================================================
+# Health & Root Endpoints
+# ==============================================================================
+#
+# Service health checks for Kubernetes liveness/readiness probes.
+#
+# Endpoints:
+#   GET /api/       - Service info (name, version, docs URL)
+#   GET /api/health - Health check with chain status and prompt version
+#
+# Health Response:
+#   {
+#     "status": "healthy",
+#     "chain_loaded": true,
+#     "prompt_name": "readme-rag-prompt",
+#     "prompt_version": 3,
+#     "uptime_seconds": 12345
+#   }
+#
+# Returns 503 Service Unavailable if chain is not loaded or unhealthy.
+#
+# =============================================================================="""
 
 from datetime import datetime, timezone
 

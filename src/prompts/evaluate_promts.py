@@ -1,69 +1,94 @@
-"""
-MLflow evaluation with LLM-as-judge.
-"""
+# ==============================================================================
+# RAG Prompt Evaluation Pipeline
+# ==============================================================================
+#
+# Automated evaluation of prompt versions using MLflow GenAI framework.
+# Compares multiple prompt versions and promotes the best to @champion.
+#
+# This script:
+#   1. Loads evaluation dataset from DVC (versioned questions + answers)
+#   2. Runs each prompt version through the RAG pipeline
+#   3. Scores responses with custom metrics:
+#      - concept_coverage: Checks if key concepts appear in answer
+#      - answer_quality_judge: LLM-as-judge quality assessment
+#   4. Calculates composite score (60% concept + 40% judge)
+#   5. Promotes best prompt to @champion alias in MLflow
+#
+# Usage:
+#   python src/prompts/evaluate_promts.py \
+#       --prompt-name readme-rag-prompt \
+#       --prompt-versions 1 2 3 \
+#       --dvc-data-version opencloudhub-readmes-rag-evaluation-v1.0.0 \
+#       --auto-promote
+#
+# Prerequisites:
+#   - Environment variables: source .env.minikube
+#   - Port-forward PostgreSQL in local dev: kubectl port-forward -n storage svc/demo-app-db-cluster-rw 5432:5432
+#   - DVC configured with access to data registry
+#
+# =============================================================================="""
 
+# ============================================================
+# TRACING SETUP - Must be FIRST, before any other imports
+# ============================================================
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+
+trace.set_tracer_provider(TracerProvider())
+
+# ============================================================
+# Standard imports - now safe
+# ============================================================
 import argparse
 import io
 import json
-import os
 
 import dvc.api
 import httpx
 import mlflow
 import pandas as pd
 import urllib3
-from dotenv import load_dotenv
+from loguru import logger as loguru_logger
 from mlflow.entities import Feedback
 from mlflow.genai import evaluate
 from mlflow.genai.datasets import create_dataset, search_datasets
 from mlflow.genai.scorers import scorer
 
-from src._config import CONFIG
-from src._logging import get_logger, log_section
-from src.rag.chain import RAGChain
+from src.core.config import CONFIG
 
+logger = loguru_logger.bind(name="evaluate_prompts")
 urllib3.disable_warnings()
 
-logger = get_logger("evaluate_prompts")
-
-load_dotenv()
+# MLflow setup
+mlflow.set_tracking_uri(CONFIG.mlflow_tracking_uri)
+mlflow.set_experiment("RAG Prompt Evaluation")
+mlflow.langchain.autolog()
 
 
 def load_eval_dataset(dvc_data_version: str):
-    """
-    Load dataset from DVC and create/reuse MLflow dataset.
-
-    If a dataset with the same DVC version exists, reuse it.
-    Otherwise, create a new one.
-    """
+    """Load dataset from DVC and create/reuse MLflow dataset."""
     logger.info(f"Loading eval dataset (DVC version: {dvc_data_version})...")
 
-    # Get or create experiment
     exp = mlflow.get_experiment_by_name("RAG Prompt Evaluation")
     exp_id = (
         exp.experiment_id if exp else mlflow.create_experiment("RAG Prompt Evaluation")
     )
 
-    # Search for existing dataset with same DVC version
     logger.info("  Checking for existing dataset...")
     existing_datasets = search_datasets(
         experiment_ids=[exp_id],
         filter_string=f"tags.dvc_data_version = '{dvc_data_version}'",
         max_results=1,
-        order_by=["created_time DESC"],  # Get most recent if multiple
+        order_by=["created_time DESC"],
     )
 
     if existing_datasets:
         dataset = existing_datasets[0]
         logger.info(f"  ✓ Reusing existing dataset: {dataset.name}")
-        logger.info(f"  ✓ Dataset ID: {dataset.dataset_id}")
-        logger.info(f"  ✓ Records: {len(dataset.records)}\n")
         return dataset
 
-    # No existing dataset found - create new one
     logger.info("  No existing dataset found, creating new one...")
 
-    # Load from DVC
     csv_content = dvc.api.read(
         path=CONFIG.eval_data_path,
         repo=CONFIG.dvc_repo,
@@ -73,7 +98,6 @@ def load_eval_dataset(dvc_data_version: str):
     df = pd.read_csv(io.StringIO(csv_content))
     logger.success(f"  ✓ Loaded {len(df)} questions from DVC")
 
-    # Create MLflow GenAI dataset with rich metadata
     dataset = create_dataset(
         name=f"readme-rag-eval-{dvc_data_version}",
         experiment_id=exp_id,
@@ -88,7 +112,6 @@ def load_eval_dataset(dvc_data_version: str):
         },
     )
 
-    # Convert to MLflow eval format and merge
     records = []
     for _, row in df.iterrows():
         records.append(
@@ -106,26 +129,20 @@ def load_eval_dataset(dvc_data_version: str):
         )
 
     dataset.merge_records(records)
-
     logger.success(f"  ✓ Created new MLflow dataset: {dataset.name}")
-    logger.info(f"  ✓ Dataset ID: {dataset.dataset_id}")
-    logger.info(f"  ✓ Records: {len(records)}\n")
-
     return dataset
 
 
 @scorer
 def concept_coverage(outputs: str, expectations: dict) -> Feedback:
-    """Custom scorer: Check if key concepts are covered"""
+    """Custom scorer: Check if key concepts are covered."""
     key_concepts = expectations.get("key_concepts", [])
-
     if not key_concepts:
         return Feedback(value=1.0, rationale="No key concepts specified")
 
     output_lower = outputs.lower()
     covered = [c for c in key_concepts if c.lower() in output_lower]
     score = len(covered) / len(key_concepts)
-
     return Feedback(
         value=score,
         rationale=f"Covered {len(covered)}/{len(key_concepts)}: {covered}",
@@ -133,26 +150,19 @@ def concept_coverage(outputs: str, expectations: dict) -> Feedback:
 
 
 def create_llm_judge(base_url: str, model: str):
-    """
-    Create LLM-as-a-judge using our own served model!
-
-    This uses our Qwen model as the judge instead of OpenAI.
-    """
+    """Create LLM-as-a-judge using our own served model."""
 
     @scorer
     def answer_quality_judge(
         outputs: str, inputs: dict, expectations: dict
     ) -> Feedback:
-        """LLM judge using our own model"""
         question = inputs.get("question", "")
         expected = expectations.get("answer", "")
 
         judge_prompt = f"""You are an expert evaluator for a RAG system about OpenCloudHub MLOps platform.
 
 Question: {question}
-
 Generated Answer: {outputs}
-
 Expected Answer: {expected}
 
 Evaluate if the generated answer:
@@ -163,7 +173,6 @@ Evaluate if the generated answer:
 Rate from 0.0 (completely wrong) to 1.0 (perfect).
 Return ONLY a JSON with: {{"score": <float>, "rationale": "<string>"}}"""
 
-        # Call our own model
         http_client = httpx.Client(verify=False)
         from langchain_openai import ChatOpenAI
 
@@ -176,11 +185,9 @@ Return ONLY a JSON with: {{"score": <float>, "rationale": "<string>"}}"""
 
         try:
             response = llm.invoke(judge_prompt).content
-            # Parse JSON response
             result = json.loads(response)
             return Feedback(value=float(result["score"]), rationale=result["rationale"])
         except Exception as e:
-            # Fallback if parsing fails
             return Feedback(value=0.5, rationale=f"Judge error: {e}")
 
     return answer_quality_judge
@@ -190,81 +197,70 @@ def evaluate_prompt(prompt_version: int, name: str, dataset, dvc_data_version: s
     """Evaluate one prompt version."""
     logger.info(f"\n{'=' * 60}\nEvaluating v{prompt_version}\n{'=' * 60}")
 
-    rag = RAGChain(
-        db_connection_string=CONFIG.db_connection_string,
-        table_name=CONFIG.db_table_name,
-        embedding_model=CONFIG.embedding_model,
-        llm_base_url=CONFIG.llm_base_url,
-        llm_model=CONFIG.llm_model,
-        api_key=CONFIG.api_key,
-        prompt_name=name,
-        prompt_version=prompt_version,
-        top_k=CONFIG.db_top_k,
-    )
+    from src.core.database import DatabaseManager
+    from src.rag.chain import RAGChain
 
-    def predict_fn(question: str) -> str:
-        return rag.invoke(question)
+    with DatabaseManager.create_temporary(CONFIG.db_connection_string) as db:
+        rag = RAGChain(
+            pg_engine=db.engine,
+            db_connection_string_psycopg=CONFIG.db_connection_string_psycopg,
+            table_name=CONFIG.db_table_name,
+            embedding_model=CONFIG.embedding_model,
+            llm_base_url=CONFIG.llm_base_url,
+            llm_model=CONFIG.llm_model,
+            api_key=CONFIG.api_key,
+            prompt_name=name,
+            prompt_version=prompt_version,
+            top_k=CONFIG.db_top_k,
+        )
 
-    with mlflow.start_run(
-        run_name=f"{name}-prompt-v{prompt_version}-data-v{dvc_data_version}"
-    ) as run:
-        # Log comprehensive parameters
-        mlflow.log_param("prompt_name", name)
-        mlflow.log_param("prompt_version", prompt_version)
-        mlflow.log_param("embedding_model", CONFIG.embedding_model)
-        mlflow.log_param("llm_model", CONFIG.llm_model)
-        mlflow.log_param("table_name", CONFIG.db_table_name)
-        mlflow.log_param("top_k", CONFIG.db_top_k)
-        mlflow.log_param("eval_data_version", dvc_data_version)
-        mlflow.log_param("dvc_repo", CONFIG.dvc_repo)
-        mlflow.update_current_trace(
-            tags={
-                "prompt_version": str(prompt_version),
-                "prompt_name": name,
-                "dvc_data_version": dvc_data_version,
-                "docker_image_tag": os.getenv("DOCKER_IMAGE_TAG", "local"),
+        def predict_fn(question: str) -> str:
+            return rag.invoke(question)
+
+        with mlflow.start_run(
+            run_name=f"{name}-prompt-v{prompt_version}-data-v{dvc_data_version}"
+        ) as run:
+            mlflow.log_param("prompt_name", name)
+            mlflow.log_param("prompt_version", prompt_version)
+            mlflow.log_param("embedding_model", CONFIG.embedding_model)
+            mlflow.log_param("llm_model", CONFIG.llm_model)
+            mlflow.log_param("table_name", CONFIG.db_table_name)
+            mlflow.log_param("top_k", CONFIG.db_top_k)
+            mlflow.log_param("eval_data_version", dvc_data_version)
+
+            mlflow.set_tags(
+                {
+                    "prompt_version": str(prompt_version),
+                    "prompt_name": name,
+                    "dvc_data_version": dvc_data_version,
+                }
+            )
+
+            results = evaluate(
+                data=dataset,
+                predict_fn=predict_fn,
+                scorers=[
+                    concept_coverage,
+                    create_llm_judge(CONFIG.llm_base_url, CONFIG.llm_model),
+                ],
+            )
+
+            metrics_dict = {}
+            for key, value in results.metrics.items():
+                metrics_dict[key] = value
+                safe_key = key.replace("/", "_").replace(" ", "_")
+                mlflow.log_metric(safe_key, value)
+
+            logger.success("✅ Evaluation complete")
+            for k, v in metrics_dict.items():
+                logger.info(f"  {k}: {v:.3f}")
+
+            return {
+                "run_id": run.info.run_id,
+                "prompt_version": prompt_version,
+                "metrics": metrics_dict,
+                "dataset_id": dataset.dataset_id,
             }
-        )
-
-        # Use MLflow evaluate API
-        results = evaluate(
-            data=dataset,
-            predict_fn=predict_fn,
-            scorers=[
-                concept_coverage,
-                create_llm_judge(CONFIG.llm_base_url, CONFIG.llm_model),
-            ],
-        )
-
-        # Extract metrics - they have /mean suffix
-        metrics_dict = {}
-        for key, value in results.metrics.items():
-            # Store with original key
-            metrics_dict[key] = value
-            # Also log to MLflow
-            safe_key = key.replace("/", "_").replace(" ", "_")
-            mlflow.log_metric(safe_key, value)
-
-        # Log dataset info as artifact
-        dataset_info = {
-            "dataset_id": dataset.dataset_id,
-            "dataset_name": dataset.name,
-            "dvc_data_version": dvc_data_version,
-            "num_questions": len(dataset.records),
-        }
-        mlflow.log_dict(dataset_info, "dataset_info.json")
-
-        logger.success("✅ Evaluation complete")
-        logger.info("Metrics:")
-        for k, v in metrics_dict.items():
-            logger.info(f"  {k}: {v:.3f}")
-
-        return {
-            "run_id": run.info.run_id,
-            "prompt_version": prompt_version,
-            "metrics": metrics_dict,
-            "dataset_id": dataset.dataset_id,
-        }
 
 
 def run_evaluation(
@@ -276,40 +272,34 @@ def run_evaluation(
     """Run evaluation with proper dataset tracking."""
     mlflow.set_experiment("RAG Prompt Evaluation")
 
-    log_section("RAG EVALUATION SETUP", emoji="🧪")
+    logger.info(f"{'=' * 60}")
+    logger.info("🧪 RAG EVALUATION SETUP")
+    logger.info(f"{'=' * 60}")
     logger.info(f"Prompt: {prompt_name}")
     logger.info(f"Versions: {prompt_versions}")
-    logger.info(f"DVC data version: {dvc_data_version}")
-    logger.info(f"{'=' * 60}\n")
+    logger.info(f"DVC data version: {dvc_data_version}\n")
 
-    # Load dataset and reuse
     dataset = load_eval_dataset(dvc_data_version)
 
-    # Evaluate all prompt_versions
     results = []
     for version in prompt_versions:
         result = evaluate_prompt(version, prompt_name, dataset, dvc_data_version)
         results.append(result)
 
-    # Compare - use exact metric keys with /mean suffix
-    logger.info(f"\n{'=' * 60}")
-    logger.info("COMPARISON")
-    logger.info(f"{'=' * 60}")
+    logger.info(f"\n{'=' * 60}\nCOMPARISON\n{'=' * 60}")
 
     comparison_data = []
     for r in results:
         comparison_data.append(
             {
                 "version": r["prompt_version"],
-                "run_id": r["run_id"][:8],  # Shortened for display
+                "run_id": r["run_id"][:8],
                 "concept_coverage": r["metrics"].get("concept_coverage/mean", 0),
                 "llm_judge": r["metrics"].get("answer_quality_judge/mean", 0),
             }
         )
 
     comparison_df = pd.DataFrame(comparison_data)
-
-    # Calculate composite score
     comparison_df["composite"] = (
         comparison_df["concept_coverage"] * 0.6 + comparison_df["llm_judge"] * 0.4
     )
@@ -317,16 +307,10 @@ def run_evaluation(
 
     best_idx = comparison_df["composite"].idxmax()
     best_version = int(comparison_df.loc[best_idx, "version"])
-
-    # Get the full result for complete info
     best_result = results[best_idx]
 
     logger.info(f"\n✓ Best version: {best_version}")
     logger.info(f"  Composite: {comparison_df.loc[best_idx, 'composite']:.3f}")
-    logger.info(
-        f"  Concept coverage: {comparison_df.loc[best_idx, 'concept_coverage']:.3f}"
-    )
-    logger.info(f"  LLM judge: {comparison_df.loc[best_idx, 'llm_judge']:.3f}")
 
     if auto_promote:
         logger.info(f"\nPromoting version {best_version} to @champion...")
@@ -361,19 +345,5 @@ if __name__ == "__main__":
 
     logger.info(f"\n{'=' * 60}")
     logger.success("✅ EVALUATION COMPLETE")
-    logger.info(f"{'=' * 60}")
     logger.info(f"Best prompt version: v{result['best_prompt_version']}")
     logger.info(f"Run ID: {result['best_run_id']}")
-    logger.info(f"Dataset ID: {result['dataset_id']}")
-    logger.info("\nMetrics:")
-    logger.info(
-        f"  Concept coverage: {result['metrics'].get('concept_coverage/mean', 0):.3f}"
-    )
-    logger.info(
-        f"  LLM judge: {result['metrics'].get('answer_quality_judge/mean', 0):.3f}"
-    )
-    logger.info("\nLoad in production with:")
-    logger.info(f"  prompts:/{args.prompt_name}@champion")
-    logger.info("Or specific version with:")
-    logger.info(f"  prompts:/{args.prompt_name}@{result['best_prompt_version']}")
-    logger.info(f"{'=' * 60}\n")

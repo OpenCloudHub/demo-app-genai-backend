@@ -1,4 +1,30 @@
-"""Query endpoint for RAG."""
+# ==============================================================================
+# Query Endpoint - Main RAG Interface
+# ==============================================================================
+#
+# Handles question-answering requests with optional streaming support.
+#
+# Endpoints:
+#   POST /api/query - Ask a question
+#     - Non-streaming: Returns full response in JSON
+#     - Streaming: Returns Server-Sent Events (SSE) with token-by-token output
+#
+# Request Body:
+#   {
+#     "question": "What is GitOps?",
+#     "session_id": "optional-uuid",  // For chat history context
+#     "stream": false                  // Enable SSE streaming
+#   }
+#
+# Response (non-streaming):
+#   {
+#     "answer": "GitOps is...",
+#     "session_id": "uuid",
+#     "prompt_version": 3,
+#     "processing_time_ms": 1234.5
+#   }
+#
+# =============================================================================="""
 
 import asyncio
 import time

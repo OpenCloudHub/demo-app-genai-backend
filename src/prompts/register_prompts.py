@@ -1,4 +1,26 @@
-"""Register system prompts for RAG evaluation experiment."""
+# ==============================================================================
+# Prompt Registration Script
+# ==============================================================================
+#
+# Registers multiple prompt versions in MLflow Prompt Registry for A/B testing.
+#
+# This script creates three prompt versions with increasing quality:
+#   - V1 (Baseline): Minimal prompt, no grounding - expected poor results
+#   - V2 (Medium): Basic grounding and structure
+#   - V3 (Optimized): Strong grounding, source attribution, chat-aware
+#
+# Usage:
+#   python src/prompts/register_prompts.py
+#
+# Prerequisites:
+#   - MLFLOW_TRACKING_URI environment variable set
+#   - Access to MLflow tracking server
+#
+# After Registration:
+#   - Use evaluate_promts.py to compare versions
+#   - Best version will be promoted to @champion alias
+#
+# =============================================================================="""
 
 import os
 

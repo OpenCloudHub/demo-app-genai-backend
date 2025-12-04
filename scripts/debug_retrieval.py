@@ -3,10 +3,10 @@
 import os
 
 import urllib3
+from src_old._config import CONFIG
+from src_old._logging import get_logger, log_section
 
-from src._config import CONFIG
-from src._logging import get_logger, log_section
-from src.rag.chain import RAGChain
+from src_old.rag.chain import RAGChain
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 

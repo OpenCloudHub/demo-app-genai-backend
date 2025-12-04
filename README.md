@@ -26,13 +26,13 @@ ______________________________________________________________________
   <summary>📑 Table of Contents</summary>
   <ol>
     <li><a href="#about">About</a></li>
+    <li><a href="#thesis-context">Thesis Context</a></li>
     <li><a href="#features">Features</a></li>
     <li><a href="#architecture">Architecture</a></li>
     <li><a href="#getting-started">Getting Started</a></li>
+    <li><a href="#configuration">Configuration</a></li>
     <li><a href="#mlops-workflow">MLOps Workflow</a></li>
     <li><a href="#project-structure">Project Structure</a></li>
-    <li><a href="#development">Development</a></li>
-    <li><a href="#deployment">Deployment</a></li>
     <li><a href="#contributing">Contributing</a></li>
     <li><a href="#license">License</a></li>
     <li><a href="#contact">Contact</a></li>
@@ -41,19 +41,32 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-<h2 id="about">🤖 About</h2>
-<!-- TODO: make right -->
-<!-- TODO: Add Chathistory -->
+<h2 id="about">🎯 About</h2>
 
-A demo Retrieval-Augmented Generation (RAG) system that answers questions about OpenCloudHub's MLOps platform by retrieving relevant information from README files across multiple repositories. The system demonstrates MLOps practices in the context of GenAI including prompt versioning, automated evaluation, and continuous deployment.
+A production-ready Retrieval-Augmented Generation (RAG) system that answers questions about OpenCloudHub's MLOps platform by retrieving relevant information from README files across multiple repositories.
 
-**Key Capabilities:**
+The system demonstrates **MLOps best practices in the context of GenAI applications**, including:
 
-- 🔍 Semantic search over OpenCloudHub repository READMEs
-- 💬 Context-aware question answering with streaming responses
-- 📊 Automated prompt evaluation and A/B testing
-- 🚀 GitOps-based deployment with ArgoCD Image Updater
-- 🎯 MLflow-based experiment tracking and prompt registry
+- 🔍 **Semantic search** over OpenCloudHub repository READMEs
+- 💬 **Context-aware question answering** with streaming responses and chat history
+- 📊 **Automated prompt evaluation** with LLM-as-judge scoring
+- 🚀 **GitOps-based deployment** with ArgoCD Image Updater
+- 🎯 **MLflow-based experiment tracking** and prompt registry
+
+______________________________________________________________________
+
+<h2 id="thesis-context">📚 Thesis Context</h2>
+
+This repository is part of the **OpenCloudHub MLOps platform demonstration**, showcasing how to operationalize GenAI applications with proper MLOps practices:
+
+| Aspect                | Implementation                                                   |
+| --------------------- | ---------------------------------------------------------------- |
+| **Prompt Versioning** | MLflow Prompt Registry with semantic aliases (`@champion`)       |
+| **Evaluation**        | Automated scoring with custom metrics + LLM-as-judge             |
+| **Data Versioning**   | DVC-tracked evaluation datasets                                  |
+| **Deployment**        | GitOps via ArgoCD with automatic image updates                   |
+| **Observability**     | OpenTelemetry tracing → Tempo, Prometheus metrics                |
+| **Self-Hosted LLM**   | Integration with Qwen model served via Ray Serve on the platform |
 
 ______________________________________________________________________
 
@@ -63,23 +76,24 @@ ______________________________________________________________________
 
 - **Hybrid Search**: Combines semantic (pgvector) and keyword (PostgreSQL FTS) search with reciprocal rank fusion
 - **Streaming Responses**: Server-Sent Events (SSE) for real-time token streaming
-- **Session Management**: Track conversation history across multiple queries
-- **Production-Ready-Serving**: FastAPI with health checks, metrics, and graceful shutdown
+- **Session Management**: PostgreSQL-backed chat history across multiple queries
+- **Production-Ready Serving**: FastAPI with health checks, metrics, and graceful shutdown
 
 ### MLOps Pipeline
 
-- **Prompt Versioning**: MLflow Prompt Engineering with semantic versioning
+- **Prompt Versioning**: MLflow Prompt Registry with `@champion` alias for production
 - **Automated Evaluation**: Compare prompt versions using custom scorers and LLM-as-judge
-- **Auto-Promotion**: Best-performing prompts automatically promoted to `@production`
+- **Auto-Promotion**: Best-performing prompts automatically promoted to production
 - **Data Versioning**: DVC-tracked evaluation datasets with lineage
 - **CI/CD Integration**: GitHub Actions for quality checks and Docker builds
 - **GitOps Deployment**: ArgoCD with automatic image updates on promotion
 
 ### Observability
 
-- **Distributed Tracing**: MLflow tracing for end-to-end request tracking
-- **Experiment Tracking**: Compare prompt versions with standardized metrics
-- **Prompt Registry**: Track prompt lineage
+- **Distributed Tracing**: OpenTelemetry → Tempo for end-to-end request tracing
+- **Prometheus Metrics**: Request counts, latency histograms, with trace exemplars
+- **Log Correlation**: Automatic trace_id/span_id injection into logs
+- **Experiment Tracking**: MLflow for prompt evaluation metrics and comparison
 
 ______________________________________________________________________
 
@@ -87,53 +101,72 @@ ______________________________________________________________________
 
 ### System Components
 
-<!-- TODO: adjust -->
-
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        MLOps Pipeline                            │
+│                     Prompt Evaluation Pipeline                  │
 ├─────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌──────────────┐      ┌──────────────┐      ┌──────────────┐  │
-│  │   Prompt     │      │  Evaluation  │      │    Model     │  │
-│  │  Registry    │─────▶│   Dataset    │─────▶│  Deployment  │  │
-│  │  (MLflow)    │      │    (DVC)     │      │   (ArgoCD)   │  │
-│  └──────────────┘      └──────────────┘      └──────────────┘  │
-│         │                      │                      │          │
-│         │                      ▼                      │          │
-│         │              ┌──────────────┐              │          │
-│         │              │  Automated   │              │          │
-│         └─────────────▶│  Evaluation  │──────────────┘          │
-│                        │  & Promotion │                         │
-│                        └──────────────┘                         │
-│                                                                   │
+│                                                                 │
+│  ┌──────────────┐                        ┌──────────────┐       │
+│  │   Prompt     │ prompt v1, v2, v3...   │  Evaluation  │       │
+│  │  Registry    │──────────┐             │   Dataset    │       │
+│  │  (MLflow)    │          │             │    (DVC)     │       │
+│  └──────────────┘          │             └──────────────┘       │
+│                            │                     │              │
+│                            ▼                     ▼              │
+│                      ┌───────────────────────────────┐          │
+│                      │     Automated Evaluation      │          │
+│                      │  ┌─────────────────────────┐  │          │
+│                      │  │ For each prompt version │  │          │
+│                      │  │ + each Q&A pair:        │  │          │
+│                      │  │ • Run RAG pipeline      │  │          │
+│                      │  │ • Score vs expected     │  │          │
+│                      │  │ • LLM-as-judge quality  │  │          │
+│                      │  └─────────────────────────┘  │          │
+│                      └───────────────────────────────┘          │
+│                                     │                           │
+│                                     ▼                           │
+│                            ┌──────────────┐                     │
+│                            │   Promote    │                     │
+│                            │  @champion   │                     │
+│                            └──────────────┘                     │
+│                                                                 │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Production Runtime                           │
+│                     Production Runtime                          │
 ├─────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐   │
-│   │   FastAPI    │────▶│  RAG Chain   │────▶│  PostgreSQL  │   │
-│   │   Service    │     │  (LangChain) │     │  + pgvector  │   │
-│   └──────────────┘     └──────────────┘     └──────────────┘   │
-│          │                     │                                 │
-│          │                     ▼                                 │
-│          │             ┌──────────────┐                         │
-│          └────────────▶│   Our        │                         │
-│                        │     LLM      │                         │
-│                        └──────────────┘                         │
-│                                                                   │
+│                                                                 │
+│   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐    │
+│   │   FastAPI    │───▶│  RAG Chain   │───▶│  PostgreSQL  │    │
+│   │   + OTEL     │     │  (LangChain) │     │  + pgvector  │    │
+│   └──────────────┘     └──────────────┘     └──────────────┘    │
+│          │                     │                     │          │
+│          ▼                     ▼                     ▼          │
+│   ┌──────────────┐     ┌──────────────┐     ┌──────────────┐    │
+│   │    Tempo     │     │  Qwen LLM    │     │ Chat History │    │
+│   │   (Traces)   │     │  (KServe)    │     │  (Postgres)  │    │
+│   └──────────────┘     └──────────────┘     └──────────────┘    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     GitOps Deployment (ArgoCD)                   │
+├─────────────────────────────────────────────────────────────────┤
+│   GitHub Actions → Docker Build → Registry → ArgoCD → K8s       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow
 
-1. **Ingestion**: Repository READMEs → Chunking → Ray batch embeddings → PostgreSQL/pgvector
-1. **Query**: User question → Hybrid retrieval → Context + Prompt → LLM → Streamed answer
-1. **Evaluation**: Test prompts → Compute metrics → Promote best → Update deployment
-1. **Deployment**: GitHub Actions → Docker build → ArgoCD watches → Automatic rollout
+1. **Query**: User question → Hybrid retrieval (semantic + keyword) → Context + Prompt → LLM → Streamed answer
+1. **Evaluation**:
+   - Load prompt versions from MLflow (v1, v2, v3...)
+   - Load Q&A dataset from DVC (`question`, `expected_answer`, `key_concepts`, `category`)
+   - For each prompt × each question: run RAG, score answer vs expected
+   - Promote best-scoring prompt to `@champion`
+1. **Deployment**: GitHub Actions → Docker build → Push to registry → ArgoCD watches → Rolling update
 
 ______________________________________________________________________
 
@@ -144,10 +177,10 @@ ______________________________________________________________________
 - Docker & Docker Compose
 - VS Code with DevContainers extension (recommended)
 - Access to:
-  - PostgreSQL database with pgvector
+  - PostgreSQL database with pgvector extension
   - OpenAI-compatible LLM endpoint
   - MLflow tracking server
-  - MinIO or S3 for DVC storage with example data pushed and versioned in your [Data Registry](https://github.com/OpenCloudHub/data-registry/tree/main/data/opencloudhub-readmes/rag-evaluation).
+  - MinIO/S3 for DVC storage
 
 ### Quick Start
 
@@ -155,7 +188,7 @@ ______________________________________________________________________
 
    ```bash
    git clone https://github.com/OpenCloudHub/demo-app-genai-backend.git
-   cd readme-rag-agent
+   cd demo-app-genai-backend
    ```
 
 1. **Open in DevContainer**
@@ -165,53 +198,86 @@ ______________________________________________________________________
 1. **Configure environment**
 
    ```bash
-   cp .env.example .env
-   # Edit .env with your credentials and connection string
-   ```
+   # For minikube deployment (with port-forwarding)
+   cp .env.minikube .env
 
-   Required variables:
-
-   ```bash
+   # Apply environment variables
    set -a && source .env && set +a
    ```
 
-1. **Install dependencies**
+1. **Port-forward required services** (if connecting to minikube from local repo)
 
    ```bash
-   uv sync
+   # PostgreSQL
+   kubectl port-forward -n storage svc/demo-app-db-cluster-rw 5432:5432 &
+
+   # OTEL collector (Alloy)
+   kubectl port-forward -n observability svc/k8s-monitoring-alloy-receiver 4317:4317 &
    ```
 
 1. **Run the API**
 
-  Set up environment
-  ```bash 
-   # If testing with minikube
-   set -a && source .env.minikube && set +a
-
-   # If testing with docker -compose
-   set -a && source .env.docker && set +a
-   ```
-  Run the app in dev mode.
    ```bash
+   # Development mode with auto-reload
    fastapi dev src/main.py
+
+   # Production mode
+   uvicorn src.main:app --host 0.0.0.0 --port 8000
    ```
 
-   Test query:
+1. **Test the API**
 
    ```bash
-   curl -X POST http://localhost:8000/query \
+   # Simple query
+   curl -X POST http://localhost:8000/api/query \
      -H "Content-Type: application/json" \
      -d '{"question": "What is GitOps in OpenCloudHub?"}'
+
+   # Streaming with Server-Sent Events
+   curl -N -X POST http://localhost:8000/api/query \
+     -H "Content-Type: application/json" \
+     -H "Accept: text/event-stream" \
+     -d '{"question": "What is GitOps in OpenCloudHub?", "stream": true}'
    ```
 
-   or with streaming with Server-Sent Events (SSE):
+______________________________________________________________________
 
-   ```bash
-    curl -N -X POST http://localhost:8000/query \
-      -H "Content-Type: application/json" \
-      -H "Accept: text/event-stream" \
-      -d '{"question": "What is GitOps in OpenCloudHub?", "stream": true}'
-   ```
+<h2 id="configuration">⚙️ Configuration</h2>
+
+### Environment Variables
+
+All configuration is managed via environment variables (Pydantic Settings):
+
+| Variable                      | Description                  | Default             |
+| ----------------------------- | ---------------------------- | ------------------- |
+| `DB_HOST`                     | PostgreSQL host              | `127.0.0.1`         |
+| `DB_PORT`                     | PostgreSQL port              | `5432`              |
+| `DB_NAME`                     | Database name                | `demo_app`          |
+| `DB_USER`                     | Database user                | *required*          |
+| `DB_PASSWORD`                 | Database password            | *required*          |
+| `DB_TABLE_NAME`               | Embeddings table             | `readme_embeddings` |
+| `DB_TOP_K`                    | Number of docs to retrieve   | `10`                |
+| `MLFLOW_TRACKING_URI`         | MLflow server URL            | *required*          |
+| `PROMPT_NAME`                 | Prompt name in registry      | `readme-rag-prompt` |
+| `LLM_BASE_URL`                | OpenAI-compatible API URL    | *required*          |
+| `LLM_MODEL`                   | Model name                   | *required*          |
+| `EMBEDDING_MODEL`             | Sentence transformer model   | *required*          |
+| `OTEL_ENABLED`                | Enable OpenTelemetry tracing | `true`              |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP gRPC endpoint           | `localhost:4317`    |
+
+### API Endpoints
+
+| Endpoint                    | Method | Description                         |
+| --------------------------- | ------ | ----------------------------------- |
+| `/api/`                     | GET    | Service info                        |
+| `/api/health`               | GET    | Health check with prompt version    |
+| `/api/query`                | POST   | Ask a question (supports streaming) |
+| `/api/session/create`       | POST   | Create a new chat session           |
+| `/api/session/{id}/history` | GET    | Get session chat history            |
+| `/api/session/{id}`         | DELETE | Clear session history               |
+| `/api/admin/reload-prompt`  | POST   | Hot-reload prompt version           |
+| `/api/debug/retrieval`      | POST   | Debug document retrieval            |
+| `/metrics`                  | GET    | Prometheus metrics                  |
 
 ______________________________________________________________________
 
@@ -219,320 +285,111 @@ ______________________________________________________________________
 
 ### 1. Prompt Development
 
-**Create a new prompt version:**
-
-```python
-# scripts/register_prompts.py
-import mlflow
-
-mlflow.set_tracking_uri("https://mlflow.ai.internal.opencloudhub.org")
-
-prompt_template = """
-You are an expert on OpenCloudHub's MLOps platform.
-Answer the following question using only the provided context.
-
-Context: {context}
-
-Question: {question}
-
-Answer:"""
-
-# Register new version
-mlflow.set_prompt("readme-rag-prompt", prompt_template)
-```
-
-Run registration:
+Register new prompt versions in MLflow:
 
 ```bash
-python scripts/register_prompts.py
+python src/prompts/register_prompts.py
 ```
 
-This creates next version in MLflow Prompt Registry.
+This registers multiple prompt versions (V1: baseline, V2: medium, V3: optimized) for A/B testing.
 
 ### 2. Automated Evaluation
 
-**Trigger evaluation workflow:**
+Run evaluation to compare prompt versions:
 
 ```bash
-# Manually
-python src/evaluation/evaluate_promts.py \
+# Local execution
+python src/prompts/evaluate_promts.py \
     --prompt-name readme-rag-prompt \
-    --prompt-versions 1 2 3 4 \
-    --data-version opencloudhub-readmes-rag-evaluation-v1.0.0 \
+    --prompt-versions 1 2 3 \
+    --dvc-data-version opencloudhub-readmes-rag-evaluation-v1.0.0 \
     --auto-promote
 
-# Or via GitHub Actions
-gh workflow run evaluate-and-promote-rag.yml \
+# Via GitHub Actions
+gh workflow run evaluate-and-promote-rag.yaml \
     -f prompt_name=readme-rag-prompt \
-    -f prompt_versions="1 2 3 4" \
+    -f prompt_versions="1 2 3" \
     -f data_version=opencloudhub-readmes-rag-evaluation-v1.0.0
 ```
 
-**What happens:**
+**Evaluation Process:**
 
 1. Loads evaluation dataset from DVC (versioned questions + expected answers)
 1. Runs each prompt version through the RAG pipeline
 1. Computes metrics:
-   - **Concept Coverage**: Are key concepts mentioned?
-   - **LLM-as-Judge**: Quality assessment from another LLM
-1. Calculates composite score (weighted average)
-1. Promotes best prompt to `@production` alias
-1. Logs all results to MLflow with comparison
+   - **Concept Coverage**: Checks if key concepts are mentioned in the answer
+   - **LLM-as-Judge**: Quality assessment using the same LLM
+1. Calculates composite score (60% concept + 40% judge)
+1. Promotes best prompt to `@champion` alias
 
-**Example output:**
+### 3. Hot Reload in Production
 
-```
-============================================================
-COMPARISON
-============================================================
- version  run_id    concept_coverage  llm_judge  composite
-       1  a1b2c3d4              0.85       0.78       0.82
-       2  e5f6g7h8              0.90       0.85       0.88
-       3  i9j0k1l2              0.88       0.82       0.85
-       4  m3n4o5p6              0.95       0.92       0.94
+After promotion, reload the running API without restart:
 
-✓ Best version: 4
-  Composite: 0.940
-  Concept coverage: 0.950
-  LLM judge: 0.920
-
-Promoting version 4 to @production...
-✓ Promoted!
+```bash
+curl -X POST http://localhost:8000/api/admin/reload-prompt \
+  -H "Content-Type: application/json" \
+  -d '{"prompt_version": null, "top_k": 5}'  # null loads @champion
 ```
 
-### 3. Continuous Deployment
-
-**When a new prompt is promoted:**
-
-<!-- TODO: descivbe better, we build before in ci and reuse that container -->
+### 4. Continuous Deployment
 
 ```mermaid
 graph LR
-    A[Evaluate Prompts] --> B[Promote to @production]
-    B --> C[Git Tag + Push]
-    C --> D[GitHub Actions: Build Docker]
+    A[Register Prompt] --> B[Evaluate Versions]
+    B --> C[Promote to @champion]
+    C --> D[GitHub Actions Build]
     D --> E[Push to Registry]
     E --> F[ArgoCD Image Updater]
-    F --> G[Update Deployment]
-    G --> H[Rolling Update]
+    F --> G[Rolling Update]
 ```
-
-**GitHub Actions workflow** (`.github/workflows/evaluate-and-promote-rag.yml`):
-
-```yaml
-name: Evaluate & Promote RAG
-
-on:
-  workflow_dispatch:
-    inputs:
-      prompt_versions:
-        description: 'Prompt versions to evaluate'
-        required: true
-        default: '1 2 3'
-
-jobs:
-  evaluate:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Evaluate prompts
-        run: |
-          python src/evaluation/evaluate_promts.py \
-            --prompt-versions ${{ inputs.prompt_versions }} \
-            --auto-promote
-
-      - name: Tag new version
-        if: success()
-        run: |
-          git tag -a "prompt-v${BEST_VERSION}" -m "Auto-promoted prompt"
-          git push origin "prompt-v${BEST_VERSION}"
-```
-
-**ArgoCD deployment** automatically picks up the new image and rolls out to production.
-
-### 4. Production Runtime
-
-**API loads the promoted prompt:**
-
-```python
-# src/api/main.py
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Load prompt with @production alias
-    app.state.chain = RAGChain(
-        prompt_name="readme-rag-prompt",
-        prompt_version=None,  # Uses @production alias
-        # ... other config
-    )
-    yield
-```
-
-**Runtime flow:**
-
-1. User sends question via `/query` endpoint
-1. API retrieves context using hybrid search (pgvector + FTS)
-1. Formats prompt with context and question
-1. Streams LLM response token-by-token
-1. Logs trace to MLflow for monitoring
 
 ______________________________________________________________________
 
 <h2 id="project-structure">📁 Project Structure</h2>
 
 ```
-readme-rag-agent/
+demo-app-genai-backend/
 ├── .github/
 │   └── workflows/
-│       ├── ci-code-quality.yaml           # Ruff, type checks
-│       ├── ci-docker-build-push.yaml      # Docker image builds
-│       └── evaluate-and-promote-rag.yml   # Auto evaluation
+│       ├── ci-code-quality.yaml          # Ruff linting, type checks
+│       ├── ci-docker-build-push.yaml     # Multi-stage Docker builds
+│       └── evaluate-and-promote-rag.yaml # Automated evaluation pipeline
 │
 ├── src/
+│   ├── main.py                           # FastAPI application entry point
 │   ├── api/
-│   │   ├── main.py                        # FastAPI application
-│   │   └── schemas.py                     # Request/response models
+│   │   ├── deps.py                       # FastAPI dependencies
+│   │   └── routes/
+│   │       ├── admin.py                  # Prompt reload endpoint
+│   │       ├── debug.py                  # Debug/retrieval testing
+│   │       ├── health.py                 # Health checks
+│   │       ├── query.py                  # Main query endpoint
+│   │       └── session.py                # Chat session management
+│   ├── core/
+│   │   ├── config.py                     # Pydantic settings
+│   │   ├── database.py                   # Database connection manager
+│   │   ├── logging.py                    # Loguru configuration
+│   │   └── tracing.py                    # OpenTelemetry + Prometheus
+│   ├── prompts/
+│   │   ├── evaluate_promts.py            # MLflow GenAI evaluation
+│   │   └── register_prompts.py           # Prompt registration
 │   ├── rag/
-│   │   └── chain.py                       # RAGChain implementation
-│   ├── evaluation/
-│   │   └── evaluate_promts.py             # Evaluation pipeline
-│   ├── _config.py                         # Configuration management
-│   └── _logging.py                        # Logging setup
+│   │   ├── chain.py                      # RAGChain with LangChain
+│   │   └── embeddings.py                 # SentenceTransformer wrapper
+│   └── schemas/                          # Pydantic request/response models
 │
 ├── scripts/
-│   └── register_prompts.py                # Register prompt versions
+│   ├── debug_retrieval.py                # Test retrieval quality
+│   └── test_streaming_curl.sh            # Test SSE streaming
 │
 ├── tests/
-│   ├── test_retrieval.py                  # Test vector search
-│   └── test_streaming.py                  # Streaming response tests
+│   └── test_streaming.py                 # Streaming response tests
 │
-├── .devcontainer/
-│   ├── devcontainer.json                  # VS Code DevContainer
-│   └── Dockerfile                         # Development environment
-│
-├── .dvc/
-│   ├── config                             # DVC remote config
-│   └── .gitignore                         # Ignore local config
-│
-├── .env.example                           # Environment template
-├── pyproject.toml                         # Python dependencies
-├── Dockerfile                             # Production image
-└── README.md                              # This file
-```
-
-______________________________________________________________________
-
-<h2 id="development">💻 Development</h2>
-
-### Testing Locally
-
-**Test the RAG chain:**
-
-```bash
-python scripts/test_retrieval.py
-```
-
-**Test streaming:**
-
-```bash
-python tests/test_streaming.py
-```
-
-**Test evaluation:**
-
-```bash
-python src/evaluation/evaluate_promts.py \
-    --prompt-versions 1 2 \
-    --auto-promote False  # Just compare, don't promote
-```
-
-### Adding Evaluation Data
-
-1. **Prepare questions CSV:**
-   Adjust the evaluation data found and tracked in the [Data Registry](https://github.com/OpenCloudHub/data-registry/tree/main/data/opencloudhub-readmes/rag-evaluation)
-
-   ```csv
-   question,expected_answer,key_concepts,category
-   "What is GitOps?","ArgoCD manages deployments...","[""GitOps"",""ArgoCD""]",deployment
-   ```
-
-1. **Track with DVC:**
-
-   ```bash
-   dvc add data/opencloudhub-readmes/rag-evaluation/questions.csv
-   dvc push
-   git add data/opencloudhub-readmes/rag-evaluation/questions.csv.dvc
-   git commit -m "Add evaluation dataset v1.1.0"
-   git tag opencloudhub-readmes-rag-evaluation-v1.1.0
-   git push origin main --tags
-   ```
-
-1. **Use in evaluation:**
-
-   ```bash
-   python src/evaluation/evaluate_promts.py \
-       --data-version opencloudhub-readmes-rag-evaluation-v1.1.0
-   ```
-
-### Creating New Prompt Versions
-
-**Iterative prompt engineering:**
-
-```python
-# 1. Create new version
-prompt_v5 = """
-You are an expert assistant for OpenCloudHub's MLOps platform.
-
-Guidelines:
-- Be concise but comprehensive
-- Cite specific technologies mentioned in context
-- If information is missing, say so clearly
-
-Context: {context}
-Question: {question}
-Answer:"""
-
-mlflow.set_prompt("readme-rag-prompt", prompt_v5)
-
-# 2. Evaluate
-python src/evaluation/evaluate_promts.py \
-    --prompt-versions 4 5 \
-    --auto-promote
-
-# 3. If v5 wins, it becomes @production automatically
-```
-
-______________________________________________________________________
-
-<h2 id="deployment">🚀 Deployment</h2>
-
-### Docker Build
-
-Building a new serving image happens during the automated CI/CD pipeline. Changes
-on relevant files trigger a [Github Actions Workflow](.github/workflows/ci-docker-build-push.yaml) that calls a shared workflow that build and pushes the container to Dockerhub.
-
-### Kubernetes Deployment
-
-**ArgoCD Image Updater** automatically detects new images and updates the deployment.
-
-### Health Checks
-
-The API includes health endpoints:
-
-```bash
-# Liveness probe
-curl http://localhost:8000/health
-
-# Readiness probe
-curl http://localhost:8000/health
-```
-
-**Response:**
-
-```json
-{
-  "status": "healthy",
-  "prompt_version": 4,
-  "uptime_seconds": 12345
-}
+├── .env.minikube                         # Minikube environment template
+├── Dockerfile                            # Multi-stage production build
+├── pyproject.toml                        # Python dependencies (uv)
+└── README.md
 ```
 
 ______________________________________________________________________
@@ -541,13 +398,13 @@ ______________________________________________________________________
 
 Contributions are welcome! This project follows OpenCloudHub's contribution standards.
 
-Please see our [Contributing Guidelines](https://github.com/opencloudhub/.github/blob/main/.github/CONTRIBUTING.md) and [Code of Conduct](https://github.com/opencloudhub/.github/blob/main/.github/CODE_OF_CONDUCT.md) for more details.
+Please see our [Contributing Guidelines](https://github.com/opencloudhub/.github/blob/main/.github/CONTRIBUTING.md) and [Code of Conduct](https://github.com/opencloudhub/.github/blob/main/.github/CODE_OF_CONDUCT.md).
 
 **Development workflow:**
 
 1. Fork the repository
 1. Create a feature branch (`git checkout -b feature/amazing-feature`)
-1. Make your changes with tests
+1. Make changes with tests
 1. Run quality checks (`ruff check . && ruff format .`)
 1. Commit (`git commit -m 'Add amazing feature'`)
 1. Push to branch (`git push origin feature/amazing-feature`)
@@ -563,20 +420,39 @@ ______________________________________________________________________
 
 <h2 id="contact">📬 Contact</h2>
 
-Organization Link: [https://github.com/OpenCloudHub](https://github.com/OpenCloudHub)
+**Organization:** [OpenCloudHub](https://github.com/OpenCloudHub)
 
-Project Link: [https://github.com/opencloudhub/readme-rag-agent](https://github.com/opencloudhub/readme-rag-agent)
+**Project:** [demo-app-genai-backend](https://github.com/OpenCloudHub/demo-app-genai-backend)
 
 ______________________________________________________________________
 
 <h2 id="acknowledgements">🙏 Acknowledgements</h2>
 
 - [LangChain](https://python.langchain.com/) - RAG orchestration framework
-- [FastAPI](https://fastapi.tiangolo.com/) - Modern web framework
-- [MLflow](https://mlflow.org/) - ML lifecycle management
+- [FastAPI](https://fastapi.tiangolo.com/) - Modern async web framework
+- [MLflow](https://mlflow.org/) - ML lifecycle management & prompt registry
 - [DVC](https://dvc.org/) - Data version control
-- [pgvector](https://github.com/pgvector/pgvector) - Vector similarity search
-- [Ollama](https://ollama.ai/) - Local LLM inference
+- [pgvector](https://github.com/pgvector/pgvector) - Vector similarity search for PostgreSQL
+- [OpenTelemetry](https://opentelemetry.io/) - Observability framework
 - [ArgoCD](https://argo-cd.readthedocs.io/) - GitOps continuous delivery
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+______________________________________________________________________
+
+<div align="center">
+  <h3>🌟 Follow the Journey</h3>
+  <p><em>Building in public • Learning together • Sharing knowledge</em></p>
+
+<div>
+    <a href="https://opencloudhub.github.io/docs">
+      <img src="https://img.shields.io/badge/Read%20the%20Docs-2596BE?style=for-the-badge&logo=read-the-docs&logoColor=white" alt="Documentation">
+    </a>
+    <a href="https://github.com/orgs/opencloudhub/discussions">
+      <img src="https://img.shields.io/badge/Join%20Discussion-181717?style=for-the-badge&logo=github&logoColor=white" alt="Discussions">
+    </a>
+    <a href="https://github.com/orgs/opencloudhub/projects/4">
+      <img src="https://img.shields.io/badge/View%20Roadmap-0052CC?style=for-the-badge&logo=jira&logoColor=white" alt="Roadmap">
+    </a>
+  </div>
+</div>

@@ -1,30 +1,5 @@
-# ==============================================================================
-# RAG Chain - LangChain-based Retrieval-Augmented Generation
-# ==============================================================================
-#
-# Core RAG implementation with hybrid search, chat history, and MLflow prompts.
-#
-# This module:
-#   1. Initializes LLM (OpenAI-compatible) and embedding model
-#   2. Connects to PGVector store with hybrid search (semantic + FTS)
-#   3. Manages PostgreSQL-backed chat history per session
-#   4. Loads prompts from MLflow registry (supports version and @champion alias)
-#   5. Provides invoke() and stream() methods for query execution
-#
-# Key Components:
-#   - RAGChain: Main class orchestrating retrieval and generation
-#   - Hybrid Search: Reciprocal rank fusion of vector + keyword search
-#   - Chat History: PostgresChatMessageHistory for session context
-#
-# Usage:
-#   chain = RAGChain(pg_engine=engine, prompt_name="my-prompt", ...)
-#   answer = chain.invoke("What is GitOps?")
-#   for chunk in chain.stream("Explain RAG", session_id="abc"):
-#       print(chunk, end="")
-#
-# =============================================================================="""
+"""LangChain-based RAG chain with MLflow tracing and chat history."""
 
-import os
 import uuid
 from typing import Optional
 
@@ -46,11 +21,15 @@ from langchain_postgres.v2.hybrid_search_config import (
     reciprocal_rank_fusion,
 )
 
+# Import only what we need to avoid loading tracing module
 from src.core.config import CONFIG
 from src.core.logging import get_logger
 from src.rag.embeddings import SentenceTransformerEmbeddings
 
 logger = get_logger(__name__)
+
+# Enable MLflow autologging (respects OTEL_ENABLED setting)
+# setup_mlflow_autolog()
 
 
 class RAGChain:
@@ -58,7 +37,7 @@ class RAGChain:
 
     def __init__(
         self,
-        pg_engine: PGEngine,
+        db_connection_string: str,
         db_connection_string_psycopg: str,
         table_name: str,
         embedding_model: str,
@@ -70,6 +49,7 @@ class RAGChain:
         top_k: int = 5,
         chat_history_table: str = "chat_history",
     ):
+        self.db_connection_string = db_connection_string
         self.db_connection_string_psycopg = db_connection_string_psycopg
         self.chat_history_table = chat_history_table
         self.top_k = top_k
@@ -89,8 +69,8 @@ class RAGChain:
         # Initialize embedder
         self.embedder = SentenceTransformerEmbeddings(embedding_model)
 
-        # Initialize vectorstore with injected engine
-        self._init_vectorstore(pg_engine, table_name, top_k)
+        # Connect to vectorstore
+        self._init_vectorstore(db_connection_string, table_name, top_k)
 
         # Create chat history table
         self._init_chat_history_table()
@@ -98,8 +78,18 @@ class RAGChain:
         # Load prompt
         self.prompt_template = self._load_prompt(prompt_name, prompt_version)
 
-    def _init_vectorstore(self, pg_engine: PGEngine, table_name: str, top_k: int):
-        """Initialize PGVector store with hybrid search using injected engine."""
+    def _init_vectorstore(self, connection_string: str, table_name: str, top_k: int):
+        """Initialize PGVector store with hybrid search."""
+        try:
+            pg_engine = PGEngine.from_connection_string(
+                url=connection_string,
+                connect_args={"connect_timeout": 10},
+            )
+            logger.info("✓ Connected to Postgres vectorstore")
+        except Exception as e:
+            logger.error(f"Failed to connect to Postgres: {e}")
+            raise
+
         hybrid_config = HybridSearchConfig(
             tsv_lang="pg_catalog.english",
             fusion_function=reciprocal_rank_fusion,
@@ -116,7 +106,6 @@ class RAGChain:
             embedding_column="embedding",
             metadata_json_column="metadata",
         )
-        logger.info("✓ Connected to Postgres vectorstore")
 
         self.retriever = self.vectorstore.as_retriever(search_kwargs={"k": top_k})
 
@@ -144,45 +133,33 @@ class RAGChain:
     def _load_prompt(
         self, prompt_name: str, version: Optional[int] = None
     ) -> ChatPromptTemplate:
-        """Load prompt from MLflow with chat history placeholder."""
+        """Load prompt from MLflow with chat history placeholder.
+
+        Args:
+            prompt_name: Name of the prompt in MLflow
+            version: Specific version to load, or None to load @champion alias
+        """
         mlflow.set_tracking_uri(CONFIG.mlflow_tracking_uri)
-        logger.debug(
-            f"Loading prompt {prompt_name} v{version} from {CONFIG.mlflow_tracking_uri}"
-        )
         try:
             if version is not None:
                 prompt_uri = f"prompts:/{prompt_name}/{version}"
             else:
+                # Load production/champion version when no specific version requested
                 prompt_uri = f"prompts:/{prompt_name}@champion"
 
-            logger.debug(f"MLFLOW_TRACKING_URI: {CONFIG.mlflow_tracking_uri}")
-            logger.debug(
-                f"MLFLOW_TRACKING_INSECURE_TLS env: {os.environ.get('MLFLOW_TRACKING_INSECURE_TLS')}"
-            )
-
-            logger.debug(f"Fetching prompt: {prompt_uri}")
             mlflow_prompt = mlflow.genai.load_prompt(prompt_uri)
-
-            if mlflow_prompt is None:
-                raise RuntimeError(f"MLflow returned None for prompt {prompt_uri}")
-
+            # Update instance version from loaded prompt
             self.prompt_version = mlflow_prompt.version
-            template_text = mlflow_prompt.to_single_brace_format()
-
-            if template_text is None:
-                raise RuntimeError(f"Prompt template is None for {prompt_uri}")
-
             logger.info(f"✓ Loaded prompt: {prompt_uri} (v{self.prompt_version})")
 
             return ChatPromptTemplate.from_messages(
                 [
-                    ("system", template_text),
+                    ("system", mlflow_prompt.to_single_brace_format()),
                     MessagesPlaceholder(variable_name="chat_history"),
                     ("human", "{question}"),
                 ]
             )
         except Exception as e:
-            logger.error(f"Failed to load prompt {prompt_name}: {e}", exc_info=True)
             raise RuntimeError(f"Failed to load prompt {prompt_name}: {e}")
 
     def _format_docs(self, docs) -> str:
@@ -195,6 +172,7 @@ class RAGChain:
             source_repo = doc.metadata.get("source_repo", "unknown")
             source_file = doc.metadata.get("source_file", "unknown")
 
+            # Build section path from headers
             section_parts = []
             if doc.metadata.get("section_h1"):
                 section_parts.append(doc.metadata["section_h1"])

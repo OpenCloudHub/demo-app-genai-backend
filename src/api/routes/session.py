@@ -1,4 +1,22 @@
-"""Session management endpoints."""
+# ==============================================================================
+# Session Management Endpoints
+# ==============================================================================
+#
+# Manage chat sessions for multi-turn conversations.
+# Sessions persist chat history in PostgreSQL for context-aware responses.
+#
+# Endpoints:
+#   POST   /api/session/create        - Create new session, returns session_id
+#   GET    /api/session/{id}/history  - Get all messages in a session
+#   DELETE /api/session/{id}          - Clear session history
+#
+# Usage Flow:
+#   1. Create session: POST /session/create -> {"session_id": "abc-123"}
+#   2. Query with session: POST /query {"question": "...", "session_id": "abc-123"}
+#   3. Follow-up queries use same session_id for context
+#   4. Clear when done: DELETE /session/abc-123
+#
+# =============================================================================="""
 
 from datetime import datetime, timezone
 

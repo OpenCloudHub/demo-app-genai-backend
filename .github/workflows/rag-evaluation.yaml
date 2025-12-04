@@ -1,0 +1,89 @@
+name: RAG Prompt Evaluation
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt_versions:
+        description: 'Prompt versions to evaluate (comma-separated, e.g., "1,2,3")'
+        required: true
+        default: '1,2,3'
+      dvc_data_version:
+        description: 'DVC data version for eval dataset'
+        required: true
+        default: 'opencloudhub-readmes-rag-evaluation-v1.0.0'
+      image_tag:
+        description: 'Image tag (latest or specific)'
+        required: false
+        default: 'latest'
+      auto_promote:
+        description: 'Auto-promote best prompt to @champion'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  submit-evaluation:
+    name: 🧪 Submit RAG Evaluation
+    runs-on: self-hosted-local
+    steps:
+      - name: 🔧 Setup kubectl
+        uses: OpenCloudHub/.github/.github/actions/setup-kubectl@main
+        with:
+          kube-config: ${{ secrets.KUBE_CONFIG }}
+
+      - name: 🐳 Resolve image
+        id: image
+        uses: OpenCloudHub/.github/.github/actions/resolve-docker-tag@main
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          token: ${{ secrets.DOCKER_TOKEN }}
+          repo: ${{ secrets.DOCKER_USERNAME }}/demo-app-genai-backend
+          prefix: main
+          tag: ${{ inputs.image_tag }}
+
+      - name: 🚀 Submit Argo Workflow
+        id: submit
+        run: |
+          cat <<EOF | kubectl create -n mlops -f -
+          apiVersion: argoproj.io/v1alpha1
+          kind: Workflow
+          metadata:
+            generateName: rag-evaluation-
+            labels:
+              repo: ${{ github.event.repository.name }}
+              run-id: "${{ github.run_id }}"
+          spec:
+            serviceAccountName: workflow-executor
+            workflowTemplateRef:
+              name: rag-evaluation-pipeline
+            arguments:
+              parameters:
+                - name: prompt_name
+                  value: "readme-rag-prompt"
+                - name: image
+                  value: "${{ steps.image.outputs.full-image }}"
+                - name: prompt_versions
+                  value: "${{ inputs.prompt_versions }}"
+                - name: dvc_data_version
+                  value: "${{ inputs.dvc_data_version }}"
+                - name: auto_promote
+                  value: "${{ inputs.auto_promote }}"
+          EOF
+
+          sleep 2
+          WORKFLOW_NAME=$(kubectl get workflows -n mlops -l repo=${{ github.event.repository.name }},run-id=${{ github.run_id }} -o jsonpath='{.items[0].metadata.name}')
+          echo "workflow_name=${WORKFLOW_NAME}" >> $GITHUB_OUTPUT
+
+      - name: 📊 Summary
+        run: |
+          echo "## 🧪 RAG Evaluation Submitted" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Workflow** | \`${{ steps.submit.outputs.workflow_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image** | \`${{ steps.image.outputs.full-image }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Prompt Versions** | \`${{ inputs.prompt_versions }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Data Version** | \`${{ inputs.dvc_data_version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Auto Promote** | \`${{ inputs.auto_promote }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[View Workflow](https://argo-workflows.internal.opencloudhub.org/workflows/mlops/${{ steps.submit.outputs.workflow_name }})" >> $GITHUB_STEP_SUMMARY

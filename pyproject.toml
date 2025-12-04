@@ -29,6 +29,7 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-grpc>=1.38.0",
     "opentelemetry-instrumentation-httpx>=0.59b0",
     "opentelemetry-instrumentation-psycopg>=0.59b0",
+    "prometheus-client>=0.23.1",
 ]
 
 [dependency-groups]
