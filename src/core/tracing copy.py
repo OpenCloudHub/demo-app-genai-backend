@@ -34,6 +34,7 @@ from typing import Tuple
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -201,8 +202,8 @@ def setup_otlp(
     )
 
     # Instrument logging to add trace_id and span_id to logs
-    # if log_correlation:
-    #     LoggingInstrumentor().instrument(set_logging_format=True)
+    if log_correlation:
+        LoggingInstrumentor().instrument(set_logging_format=True)
 
     # Instrument FastAPI
     FastAPIInstrumentor.instrument_app(app, tracer_provider=tracer)

@@ -37,11 +37,15 @@ class DatabaseManager:
 
     def __init__(self, connection_string: str):
         self.connection_string = connection_string
-        self.engine = PGEngine.from_connection_string(
-            url=connection_string,
-            connect_args={"connect_timeout": 10},
-        )
-        logger.info("✓ DatabaseManager initialized")
+        try:
+            logger.info("Initializing DatabaseManager...")
+            self.engine = PGEngine.from_connection_string(
+                url=connection_string,
+                connect_args={"connect_timeout": 10},
+            )
+            logger.info("✓ DatabaseManager initialized")
+        except Exception as e:
+            logger.error(f"Error initializing logger: {e}")
 
     @classmethod
     def get_instance(cls, connection_string: str) -> "DatabaseManager":

@@ -35,7 +35,7 @@ from fastapi.responses import JSONResponse
 
 from src.api.routes import admin, debug, health, query, session
 from src.core import CONFIG, get_logger, setup_logging
-from src.core.database import DatabaseManager  # Add this
+from src.core.database import DatabaseManager
 from src.core.tracing import (
     PrometheusMiddleware,
     get_current_trace_id,
@@ -115,7 +115,9 @@ app = FastAPI(
     description="Demo RAG System for OpenCloudHub MLOps Platform",
     version="1.0.0",
     lifespan=lifespan,
-    root_path="/api",
+    docs_url="/api/v1/docs",
+    redoc_url="/api/v1/redoc",
+    openapi_url="/api/v1/openapi.json",
 )
 
 # Setup OTEL tracing → Tempo
@@ -157,8 +159,9 @@ async def global_exception_handler(request, exc):
     )
 
 
-app.include_router(health.router)
-app.include_router(query.router)
-app.include_router(session.router)
-app.include_router(debug.router)
-app.include_router(admin.router)
+# All API routes under /api/v1
+app.include_router(health.router, prefix="/api/v1")
+app.include_router(query.router, prefix="/api/v1")
+app.include_router(session.router, prefix="/api/v1")
+app.include_router(debug.router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")

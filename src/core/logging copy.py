@@ -1,39 +1,31 @@
 # ==============================================================================
-# Logging Configuration with Trace Correlation
+# Logging Configuration
 # ==============================================================================
-"""
-Loguru-based logging with OpenTelemetry trace context injection.
-
-Features:
-  - Colored console output for development
-  - JSON structured logging for production
-  - trace_id/span_id injection for Grafana correlation
-"""
+#
+# Loguru-based logging with optional JSON formatting for production.
+#
+# IMPORTANT: This module intentionally avoids OpenTelemetry imports to prevent
+# circular dependencies. OTEL log correlation is handled separately in tracing.py.
+#
+# Features:
+#   - Colored console output for development
+#   - JSON structured logging for production
+#   - Name binding for log source identification
+#   - Section headers for visual separation
+#
+# Usage:
+#   from src.core.logging import get_logger, setup_logging, log_section
+#
+#   setup_logging(level="DEBUG", json_format=False)
+#   logger = get_logger(__name__)
+#   logger.info("Hello world")
+#   log_section("Starting Pipeline", emoji="🚀")
+#
+# =============================================================================="""
 
 import sys
 
 from loguru import logger
-from opentelemetry import trace
-
-
-def get_trace_context() -> dict:
-    """Get current trace context for log injection."""
-    span = trace.get_current_span()
-    ctx = span.get_span_context() if span else None
-
-    if ctx and ctx.is_valid:
-        return {
-            "trace_id": trace.format_trace_id(ctx.trace_id),
-            "span_id": trace.format_span_id(ctx.span_id),
-        }
-    return {"trace_id": "0", "span_id": "0"}
-
-
-def trace_context_format(record):
-    """Inject trace context into log record."""
-    ctx = get_trace_context()
-    record["extra"]["trace_id"] = ctx["trace_id"]
-    record["extra"]["span_id"] = ctx["span_id"]
 
 
 def get_logger(name: str = __name__):
@@ -46,30 +38,24 @@ def setup_logging(level: str = "INFO", json_format: bool = False):
     logger.remove()
 
     if json_format:
-        # JSON format for production - Loki can parse this
         logger.add(
             sys.stdout,
             format="{message}",
             level=level,
             serialize=True,
         )
-        # Add trace context to serialized output
-        logger.configure(patcher=trace_context_format)
     else:
-        # Console format with trace context for development
         logger.add(
             sys.stdout,
             format=(
                 "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
                 "<level>{level: <8}</level> | "
                 "<cyan>{extra[name]}</cyan> | "
-                "<dim>trace_id={extra[trace_id]} span_id={extra[span_id]}</dim> | "
                 "<level>{message}</level>"
             ),
             level=level,
             colorize=True,
         )
-        logger.configure(patcher=trace_context_format)
 
     return logger
 

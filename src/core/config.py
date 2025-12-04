@@ -34,6 +34,7 @@ class Config(BaseSettings):
     port: int = Field(default=8000)
     log_level: str = Field(default="INFO")
     log_json: bool = Field(default=False)
+    root_path: str = Field(default="v1")  # Set to "/v1" in production behind proxy
 
     # Database credentials
     db_host: str = Field(default="127.0.0.1")
