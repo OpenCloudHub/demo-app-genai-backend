@@ -112,7 +112,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="🤖 OpenCloudHub RAG API",
-    description="Demo RAG System for OpenCloudHub MLOps Platform",
+    description="Demo RAG System for OpenCloudHub MLOps Platform 🚀",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/api/v1/docs",
