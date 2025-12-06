@@ -64,6 +64,9 @@ async def lifespan(app: FastAPI):
     mlflow.set_tracking_uri(CONFIG.mlflow_tracking_uri)
 
     try:
+        # Initialize database first (independent of prompt)
+        app.state.db = DatabaseManager.get_instance(CONFIG.db_connection_string)
+
         # Load prompt version
         try:
             prod_prompt = mlflow.genai.load_prompt(
@@ -75,12 +78,12 @@ async def lifespan(app: FastAPI):
             )
         except Exception as e:
             logger.warning(f"⚠️ Failed to load production prompt version: {e}")
+            logger.warning(
+                "⚠️ API starting in degraded mode - use /admin/reload-prompt to load a prompt"
+            )
             app.state.status = APIStatus.UNHEALTHY
             yield
             return
-
-        # Initialize database (singleton for serving)
-        app.state.db = DatabaseManager.get_instance(CONFIG.db_connection_string)
 
         # Initialize RAG chain with injected engine
         app.state.chain = RAGChain(
