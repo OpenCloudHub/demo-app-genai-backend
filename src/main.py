@@ -115,9 +115,6 @@ app = FastAPI(
     description="Demo RAG System for OpenCloudHub MLOps Platform 🚀",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/api/v1/docs",
-    redoc_url="/api/v1/redoc",
-    openapi_url="/api/v1/openapi.json",
 )
 
 # Setup OTEL tracing → Tempo
@@ -132,12 +129,14 @@ setup_otlp(
 app.add_middleware(PrometheusMiddleware, app_name=CONFIG.otel_service_name)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[  # TODO: adjust if needed
+    allow_origins=[
         "http://localhost:3000",
         "https://demo-app.opencloudhub.org",
     ],
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"],  # Already allows trace headers
+    expose_headers=["X-Trace-Id"],  # Add this if you return trace IDs
+    allow_credentials=True,  # Add if using sessions/cookies
 )
 
 
@@ -160,8 +159,8 @@ async def global_exception_handler(request, exc):
 
 
 # All API routes under /api/v1
-app.include_router(health.router, prefix="/api/v1")
-app.include_router(query.router, prefix="/api/v1")
-app.include_router(session.router, prefix="/api/v1")
-app.include_router(debug.router, prefix="/api/v1")
-app.include_router(admin.router, prefix="/api/v1")
+app.include_router(health.router)
+app.include_router(query.router)
+app.include_router(session.router)
+app.include_router(debug.router)
+app.include_router(admin.router)
