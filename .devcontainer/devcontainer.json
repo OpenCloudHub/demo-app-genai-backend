@@ -7,7 +7,7 @@
 	},
 	"workspaceMount": "source=${localWorkspaceFolder},target=/workspace/project,type=bind", // Mount the local workspace folder to /workspace/project in the container
 	"workspaceFolder": "/workspace/project",
-	"runArgs": ["--env-file", "./.env.minikube", "--network", "host"], // Use the host's network stack to allow access to services running on the host
+	"runArgs": ["--network", "host"], // Use the host's network stack to allow access to services running on the host
 	"postCreateCommand": "pre-commit run --all", // Install and run pre-commit hooks after creating the container
 	"features": {
 		"ghcr.io/devcontainers/features/github-cli:1": {},

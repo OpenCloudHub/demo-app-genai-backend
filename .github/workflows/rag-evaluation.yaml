@@ -24,7 +24,7 @@ on:
 jobs:
   submit-evaluation:
     name: 🧪 Submit RAG Evaluation
-    runs-on: self-hosted-local
+    runs-on: arc-runner-set
     steps:
       - name: 🔧 Setup kubectl
         uses: OpenCloudHub/.github/.github/actions/setup-kubectl@main
