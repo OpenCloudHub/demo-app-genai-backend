@@ -8,9 +8,10 @@ on:
         required: true
         default: '1,2,3'
       dvc_data_version:
-        description: 'DVC data version for eval dataset'
-        required: true
-        default: 'opencloudhub-readmes-rag-evaluation-v1.0.0'
+        description: "Data version to use for training (latest or specific like v1.0.0)"
+        required: false
+        type: string
+        default: "latest"
       image_tag:
         description: 'Image tag (latest or specific)'
         required: false
@@ -26,10 +27,24 @@ jobs:
     name: 🧪 Submit RAG Evaluation
     runs-on: arc-runner-set
     steps:
+      # =========================================================================
+      # Setup
+      # =========================================================================
       - name: 🔧 Setup kubectl
         uses: OpenCloudHub/.github/.github/actions/setup-kubectl@main
         with:
           kube-config: ${{ secrets.KUBE_CONFIG }}
+      
+      # =========================================================================
+      # Resolve versions
+      # =========================================================================
+      - name: 📊 Resolve DVC data version
+        id: data
+        uses: OpenCloudHub/.github/.github/actions/resolve-dvc-version@main
+        with:
+          dataset: "opencloudhub-readmes-rag-evaluation"
+          version: ${{ inputs.dvc_data_version }}
+          dvc-repo: ${{ vars.DVC_REPO_URL }}
 
       - name: 🐳 Resolve image
         id: image
@@ -41,6 +56,9 @@ jobs:
           prefix: main
           tag: ${{ inputs.image_tag }}
 
+      # =========================================================================
+      # Submit workflow
+      # =========================================================================
       - name: 🚀 Submit Argo Workflow
         id: submit
         run: |
@@ -74,6 +92,9 @@ jobs:
           WORKFLOW_NAME=$(kubectl get workflows -n mlops -l repo=${{ github.event.repository.name }},run-id=${{ github.run_id }} -o jsonpath='{.items[0].metadata.name}')
           echo "workflow_name=${WORKFLOW_NAME}" >> $GITHUB_OUTPUT
 
+      # =========================================================================
+      # Summary
+      # =========================================================================
       - name: 📊 Summary
         run: |
           echo "## 🧪 RAG Evaluation Submitted" >> $GITHUB_STEP_SUMMARY
