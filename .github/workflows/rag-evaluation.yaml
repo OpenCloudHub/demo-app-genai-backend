@@ -83,7 +83,7 @@ jobs:
                 - name: prompt_versions
                   value: "${{ inputs.prompt_versions }}"
                 - name: dvc_data_version
-                  value: "${{ inputs.dvc_data_version }}"
+                  value: "${{ steps.data.outputs.tag }}"
                 - name: auto_promote
                   value: "${{ inputs.auto_promote }}"
           EOF
