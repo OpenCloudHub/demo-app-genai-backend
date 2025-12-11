@@ -65,6 +65,52 @@ mlflow.set_experiment("RAG Prompt Evaluation")
 mlflow.langchain.autolog()
 
 
+def generate_report(
+    prompt_name: str,
+    prompt_versions: list[int],
+    dvc_data_version: str,
+    dataset,
+    comparison_df: pd.DataFrame,
+    best_idx: int,
+    best_version: int,
+    auto_promote: bool,
+    output_path: str = "/tmp/evaluation-report.md",
+) -> str:
+    """Generate clean evaluation report artifact."""
+
+    report = f"""══════════════════════════════════════════════════
+📊 RAG PROMPT EVALUATION REPORT
+══════════════════════════════════════════════════
+
+Configuration
+─────────────
+  Prompt ........... {prompt_name}
+  Versions ......... {prompt_versions}
+  Data Version ..... {dvc_data_version}
+  Dataset .......... {dataset.name}
+
+Results
+─────────────
+{comparison_df.to_string(index=False)}
+
+Winner
+─────────────
+  Version .......... v{best_version}
+  Concept Coverage . {comparison_df.loc[best_idx, "concept_coverage"]:.3f}
+  LLM Judge ........ {comparison_df.loc[best_idx, "llm_judge"]:.3f}
+  Composite ........ {comparison_df.loc[best_idx, "composite"]:.3f}
+  Promoted ......... {"@champion" if auto_promote else "No"}
+
+══════════════════════════════════════════════════
+"""
+
+    with open(output_path, "w") as f:
+        f.write(report)
+
+    logger.info(f"Report written to {output_path}")
+    return report
+
+
 def load_eval_dataset(dvc_data_version: str):
     """Load dataset from DVC and create/reuse MLflow dataset."""
     logger.info(f"Loading eval dataset (DVC version: {dvc_data_version})...")
@@ -311,6 +357,18 @@ def run_evaluation(
 
     logger.info(f"\n✓ Best version: {best_version}")
     logger.info(f"  Composite: {comparison_df.loc[best_idx, 'composite']:.3f}")
+
+    # Generate report
+    generate_report(
+        prompt_name=prompt_name,
+        prompt_versions=prompt_versions,
+        dvc_data_version=dvc_data_version,
+        dataset=dataset,
+        comparison_df=comparison_df,
+        best_idx=best_idx,
+        best_version=best_version,
+        auto_promote=auto_promote,
+    )
 
     if auto_promote:
         logger.info(f"\nPromoting version {best_version} to @champion...")
