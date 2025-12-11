@@ -51,7 +51,7 @@ class Config(BaseSettings):
     mlflow_tracking_uri: str
     dvc_repo: str = Field(default="https://github.com/OpenCloudHub/data-registry")
     eval_data_path: str = Field(
-        default="data/opencloudhub-readmes/rag-evaluation/questions.csv"
+        default="data/opencloudhub-readmes-rag-evaluation/questions.csv"
     )
     prompt_name: str = Field(default="readme-rag-prompt")
 
